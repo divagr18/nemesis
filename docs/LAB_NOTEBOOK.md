@@ -97,6 +97,27 @@ Times are IST.
   - Total: 7 failures from 16 programs, 8.1M env steps.
 - **Spark descriptions are specific and match the video.** For clip `r1_008` Spark said "both front legs slipped forward and buckled, pitching the nose down until the body flipped", and the frames show exactly that. Spark–human agreement: **1/1 checked** (target about 40).
 
+## Oct 27: fine-tune round 2 (`ft_r2`) and the bank diagnosis
+
+- `ft_r1` → `ft_r2` (cumulative bank of 410, 50M steps, 5 min):
+  - **held-out envelope w=0.5: 49.4% → 40.3%** (cumulative from `baseline_v2`: 60.4% → 40.3%, −33% relative)
+  - w=0.25: 0.4% → 0.1%
+  - held-out hand-written: flat at about 19%
+  - nominal: no further loss
+  - **but its own training bank stayed flat (61.8% → 63.0%)**
+- **Per-family diagnosis** (falls baseline → r1 → r2, 16 seeds):
+  - timing 88% → 5% → 6%
+  - sensing 98% → 11% → 8%
+  - load 74% → 4% → 2%
+  - slope 51% → 1% → 1%
+  - actuation 87% → 17% → 17%
+  - **friction 81% → 77% → 80%**
+- Friction makes up **318 of 410 (78%)** of the bank, because friction programs yield many failing CMA candidates. **24% of the friction scenarios fail ≥95% for every policy**, which looks physically infeasible: on μ≈0.1 the maximum braking deceleration is about μg ≈ 1 m/s².
+- Conclusion: fine-tuning works per family. The flat average comes from bank imbalance plus infeasible friction counterexamples.
+- Planned fix: learnability weighting p(1−p) with retirement of scenarios every policy fails, family-balanced sampling, and a friction feasibility gate.
+- No NaN rollouts in the bank. The earlier `nan` was in the hand-written suite with `ft_r1`; the code audit is investigating it.
+- Launched an Opus code audit and a Sonnet literature review on adversarial fine-tuning before starting the main experiment.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
