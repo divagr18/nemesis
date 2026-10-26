@@ -1,0 +1,31 @@
+{
+ "sha256": "6e38cdacaf0982184637efcab333c09116cde8cc2e25e185692439028d4425b3",
+ "sizes": {
+  "hand": 32,
+  "realistic": 20,
+  "sobol": 256
+ },
+ "realistic": [
+  "wet tile at walking speed",
+  "polished wood, brisk walk",
+  "ice patch 1 m ahead",
+  "3 kg backpack",
+  "4 kg load hanging off the back",
+  "10 degree ramp up",
+  "10 degree ramp down",
+  "side slope 8 degrees",
+  "hot motors, 70% torque",
+  "one worn knee motor",
+  "stiff joints in the cold",
+  "20 ms control latency",
+  "noisy IMU and encoders",
+  "miscalibrated encoders",
+  "IMU mounted 3 degrees off",
+  "velocity estimate drifting",
+  "shoulder bump from the side",
+  "shoved from behind",
+  "stop and reverse",
+  "sharp turn on wet floor"
+ ],
+ "theta_layout_version": 1
+}
