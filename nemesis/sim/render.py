@@ -19,6 +19,28 @@ def save_video(frames, path: str | Path, env, every: int = 2):
     mediapy.write_video(str(path), frames, fps=1.0 / env.dt / every)
 
 
+def render_qpos(mj_model, qpos, camera: str = "track", width: int = 640, height: int = 480,
+                every: int = 2, scene_fn=None) -> list[np.ndarray]:
+    """Renders logged joint positions [T, nq] (from a batched evaluation, so the clip shows
+    exactly the rollout that was scored; re-simulating is not bit-exact across batch sizes).
+
+    scene_fn(scene, t) may add visual geoms (perturbation overlays) to each frame.
+    """
+    import mujoco
+
+    data = mujoco.MjData(mj_model)
+    frames = []
+    with mujoco.Renderer(mj_model, height=height, width=width) as r:
+        for t in range(0, len(qpos), every):
+            data.qpos[:] = qpos[t]
+            mujoco.mj_forward(mj_model, data)
+            r.update_scene(data, camera=camera)
+            if scene_fn is not None:
+                scene_fn(r.scene, t)
+            frames.append(r.render())
+    return frames
+
+
 def tile(clips: list, cols: int = 2) -> list[np.ndarray]:
     """Tiles equal-size clips into a grid, padding shorter clips with their last frame."""
     n = max(len(c) for c in clips)

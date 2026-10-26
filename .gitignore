@@ -11,3 +11,4 @@ videos/
 *.npy
 node_modules/
 web/dist/
+.venv-win/

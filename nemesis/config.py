@@ -7,6 +7,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Reuse compiled XLA programs across runs (training compiles take ~2 min otherwise).
+import jax  # noqa: E402
+
+jax.config.update("jax_compilation_cache_dir", os.environ.get(
+    "NEMESIS_JAX_CACHE", os.path.expanduser("~/.cache/nemesis_jax")))
+jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+
 META_BASE_URL = os.environ.get("MODEL_API_BASE_URL", "https://api.meta.ai/v1")
 WONDER = "muse-wonder-1.0"
 SPARK = "muse-spark-1.3"
