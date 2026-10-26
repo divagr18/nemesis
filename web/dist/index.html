@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nemesis: try to break the robot</title>
+<meta name="description" content="Describe a physical attack in plain English. Muse Wonder turns it into physics, a Unitree Go1 runs it in MuJoCo, and you see whether the robot survives.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #12151c; --line: #222733; --text: #e7e9ee; --muted: #8b93a7;
+    --crimson: #e11d48; --crimson-soft: #e11d4822; --cyan: #22d3ee; --cyan-soft: #22d3ee1f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 Inter, system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: clamp(32px, 6vw, 56px); line-height: 1.05; margin: 0 0 8px; font-weight: 800; letter-spacing: -0.02em; }
+  h1 .n { color: var(--crimson); }
+  .sub { color: var(--muted); max-width: 640px; margin: 0 0 28px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  textarea { flex: 1 1 420px; min-height: 64px; resize: vertical; background: #0e1117; color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px; font: 15px/1.4 Inter, sans-serif; }
+  textarea:focus { outline: 2px solid var(--crimson); border-color: transparent; }
+  button { border: 0; border-radius: 10px; padding: 12px 18px; font: 600 15px Inter, sans-serif; cursor: pointer; }
+  .go { background: var(--crimson); color: white; }
+  .go:disabled { opacity: .5; cursor: wait; }
+  .mic { background: #1b2030; color: var(--text); border: 1px solid var(--line); }
+  .mic.rec { background: var(--crimson-soft); border-color: var(--crimson); color: var(--crimson); }
+  .chips { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 6px 10px; font-weight: 400; font-size: 13px; }
+  .chip:hover { color: var(--text); border-color: var(--muted); }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  #thinking { color: var(--crimson); margin-top: 14px; min-height: 22px; font-size: 14px; }
+  #result { margin-top: 18px; display: none; }
+  video { width: 100%; border-radius: 10px; background: black; display: block; }
+  .labels { display: grid; grid-template-columns: 1fr 1fr; margin: 8px 0 14px; font-size: 13px; color: var(--muted); }
+  .labels div:last-child { text-align: right; }
+  .verdicts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .v { border-radius: 10px; padding: 12px; border: 1px solid var(--line); }
+  .v.fell { border-color: var(--crimson); background: var(--crimson-soft); }
+  .v.held { border-color: var(--cyan); background: var(--cyan-soft); }
+  .v b { display: block; font-size: 18px; }
+  .prog { margin-top: 14px; background: #0e1117; border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+    font-size: 13px; color: #c9cede; white-space: pre-wrap; overflow-x: auto; }
+  .share { margin-top: 12px; background: #1b2030; color: var(--text); border: 1px solid var(--line); }
+  h2 { font-size: 20px; margin: 40px 0 12px; }
+  #hof { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  #hof .card { padding: 12px; }
+  #hof p { margin: 8px 0 0; font-size: 14px; }
+  #hof small { color: var(--muted); }
+  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+  a { color: var(--cyan); }
+  @media (max-width: 560px) { .verdicts, .labels { grid-template-columns: 1fr; } .labels div:last-child { text-align: left; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Try to break the robot.<br><span class="n">Nemesis</span> already did.</h1>
+  <p class="sub">Describe any physical attack in plain English. <b>Muse Wonder</b> turns it into physics,
+    a Unitree Go1 runs it in MuJoCo, and you see both the original policy and the one Nemesis
+    trained by attacking it. Anything that still breaks the robot becomes its next lesson.</p>
+
+  <div class="card">
+    <div class="row">
+      <textarea id="text" maxlength="500" placeholder="e.g. make the floor icy and shove it from the left while it turns"></textarea>
+      <div class="row" style="flex-direction:column">
+        <button class="go" id="go">Attack</button>
+        <button class="mic" id="mic" title="Speak your attack (Muse Voice Transcribe)">🎙 Speak</button>
+      </div>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div id="thinking" class="mono"></div>
+  </div>
+
+  <div id="result">
+    <video id="video" autoplay muted loop playsinline controls></video>
+    <div class="labels"><div>Before: the original policy</div><div>After: trained by Nemesis</div></div>
+    <div class="verdicts">
+      <div class="v" id="vb"></div>
+      <div class="v" id="va"></div>
+    </div>
+    <div class="prog mono" id="prog"></div>
+    <button class="share" id="share">Share on X</button>
+  </div>
+
+  <h2>Hall of Fame: attacks that still break it</h2>
+  <div id="hof"><small>No one has broken the trained robot yet.</small></div>
+
+  <footer>Built for the Meta Global AI Developer Hackathon with Muse Wonder, Muse Spark and Muse Voice Transcribe ·
+    simulation: MuJoCo MJX / Playground · <a href="https://github.com/divagr18/nemesis">source</a></footer>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const EXAMPLES = ["make the floor icy", "a 5 kg backpack and a shove from behind",
+  "weak back-left knee on a downhill ramp", "40 ms of control lag while it sprints",
+  "slippery front feet when it suddenly brakes"];
+EXAMPLES.forEach((t) => { const b = document.createElement("button"); b.className = "chip"; b.textContent = t;
+  b.onclick = () => { $("text").value = t; }; $("chips").appendChild(b); });
+
+const STEPS = ["Nemesis is reading your attack…", "Muse Wonder is writing the physics…",
+  "Simulating the robot in MuJoCo…", "Rendering the rollout…"];
+let tick;
+function busy(on) {
+  $("go").disabled = on; $("mic").disabled = on;
+  clearInterval(tick);
+  if (on) { let i = 0; $("thinking").textContent = STEPS[0];
+    tick = setInterval(() => { i = Math.min(i + 1, STEPS.length - 1); $("thinking").textContent = STEPS[i]; }, 4000); }
+  else $("thinking").textContent = "";
+}
+function verdict(el, fell, rate, who) {
+  el.className = "v " + (fell ? "fell" : "held");
+  el.innerHTML = `<b>${fell ? "Fell" : "Held"}</b>${who}: fell in ${Math.round(rate * 100)}% of 4 tries`;
+}
+function show(r) {
+  $("result").style.display = "block";
+  $("video").src = r.clip;
+  verdict($("vb"), r.broke_baseline, r.fall_rate_baseline, "Original policy");
+  verdict($("va"), r.broke_trained, r.fall_rate_trained, "Nemesis-trained");
+  $("prog").textContent = (r.transcript ? `heard: "${r.transcript}"\n\n` : "") +
+    "Wonder compiled your attack to:\n" + JSON.stringify(r.conditions, null, 2);
+  $("share").onclick = () => {
+    const msg = r.broke_trained ? `I broke the Nemesis robot with: "${r.text}"`
+                                : `I tried "${r.text}" and the Nemesis-trained robot survived.`;
+    window.open("https://x.com/intent/post?text=" + encodeURIComponent(msg + " Try it:") + "&url=" + encodeURIComponent(location.href), "_blank");
+  };
+  $("result").scrollIntoView({behavior: "smooth", block: "start"});
+  loadHof();
+}
+async function send(url, opts) {
+  busy(true);
+  try {
+    const res = await fetch(url, opts);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    show(body);
+  } catch (e) { $("thinking").textContent = "⚠ " + e.message; clearInterval(tick); $("go").disabled = false; $("mic").disabled = false; return; }
+  busy(false);
+}
+$("go").onclick = () => {
+  const text = $("text").value.trim(); if (text.length < 3) return;
+  send("/api/attack", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text})});
+};
+
+// Voice: record, downsample to 16 kHz mono 16-bit PCM WAV (what Muse Voice Transcribe expects).
+let rec, chunks = [];
+$("mic").onclick = async () => {
+  if (rec && rec.state === "recording") { rec.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    rec = new MediaRecorder(stream); chunks = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop()); $("mic").classList.remove("rec"); $("mic").textContent = "🎙 Speak";
+      const wav = await toWav(new Blob(chunks));
+      const fd = new FormData(); fd.append("audio", wav, "attack.wav");
+      send("/api/attack_voice", {method: "POST", body: fd});
+    };
+    rec.start(); $("mic").classList.add("rec"); $("mic").textContent = "■ Stop";
+  } catch (e) { $("thinking").textContent = "⚠ microphone unavailable"; }
+};
+async function toWav(blob) {
+  const ctx = new AudioContext();
+  const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+  const off = new OfflineAudioContext(1, Math.ceil(buf.duration * 16000), 16000);
+  const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start();
+  const pcm = (await off.startRendering()).getChannelData(0);
+  const out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const w = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); out.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVEfmt ");
+  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+  out.setUint32(24, 16000, true); out.setUint32(28, 32000, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true);
+  w(36, "data"); out.setUint32(40, pcm.length * 2, true);
+  pcm.forEach((v, i) => out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, v)) * 0x7fff, true));
+  return new Blob([out], {type: "audio/wav"});
+}
+
+async function loadHof() {
+  try {
+    const rows = await (await fetch("/api/hall_of_fame")).json();
+    if (!rows.length) return;
+    $("hof").innerHTML = "";
+    rows.forEach((r) => {
+      const c = document.createElement("div"); c.className = "card";
+      c.innerHTML = `<video src="${r.clip}" muted loop playsinline></video><p>"${r.text.replace(/</g, "&lt;")}"</p>
+        <small>fell ${Math.round(r.fall_rate_trained * 100)}% · ${new Date(r.ts * 1000).toLocaleString()}</small>`;
+      const v = c.querySelector("video"); c.onmouseenter = () => v.play(); c.onmouseleave = () => v.pause();
+      $("hof").appendChild(c);
+    });
+  } catch (e) {}
+}
+loadHof();
+</script>
+</body>
+</html>

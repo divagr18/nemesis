@@ -10,5 +10,4 @@ videos/
 *.mp4
 *.npy
 node_modules/
-web/dist/
 .venv-win/

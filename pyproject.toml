@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-server = ["fastapi", "uvicorn[standard]"]
+server = ["fastapi", "uvicorn[standard]", "python-multipart"]
 export = ["tensorflow-cpu", "tf2onnx", "onnxruntime"]
 
 [dependency-groups]
