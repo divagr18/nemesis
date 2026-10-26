@@ -186,6 +186,23 @@ Before running the main experiment, an Opus subagent audited every module agains
   - "a heavy backpack on a steep ramp going uphill" → 5 kg raised payload plus a 16° slope.
   - 55–79 s per request on the PC, dominated by software rendering in WSL. A GPU-EGL box should be about 15–20 s.
 
+## Oct 27: incident: the idle auto-stop killed the Mumbai box mid-sweep
+
+- The Mumbai L40S shut down at 22:00 UTC during `nemesis_s0` round 2. Its other 5 queued runs never started.
+- **Cause:** the idle rule ("no SSH and GPU utilization < 5%, sampled every 5 min, for 60 min") misfires on bursty MJX evaluation, where samples can keep landing in CPU gaps. The Oregon fleet was launched with `shutdown → terminate`, so a misfire there would have **deleted** results.
+- **Fix:** idle now means no SSH *and* no process holding the GPU *and* no job process (`scripts/idle-stop.sh`). Patched on all 5 boxes and baked into `aws_userdata.sh`.
+- **Recovery:**
+  - `nemesis_s0` moved to `nemesis_s0_aborted` (partial runs don't append to a fresh run's atlas).
+  - Mumbai re-queued: `nemesis_s0`, `nemesis_s1`, `dr_s0`.
+  - `random_s0`, `box_s0` and `shuffled_s0` appended to the queues of Oregon boxes 0–2.
+- **Second bug caught before it bit:** the queue waiters used `pgrep -f 'experiments/run_arm.py'`, which matches the waiter's own command line, so they would have waited forever. Relaunched on `pgrep -x python`. Same lesson as earlier with `pkill -f`: never pattern-match a string that appears in your own command.
+- **Glimmer (S1) wiring:**
+  - Muse Glimmer can now be Nemesis's proposer through llama.cpp's OpenAI-compatible server (`--proposer glimmer`).
+  - Model: `meta-models/Muse-Glimmer-30B-GGUF:Q4_K_M` (16.8 GB, fits a 24 GB L4).
+  - Reasoning strength goes in the system prompt; sampling uses temperature 1.0, top-p 0.95, top-k 64, as on the model card.
+  - Testing waits for an L4 to free up.
+- **Visible perturbations** (`nemesis/sim/overlays.py`): ice patch, slippery-foot markers, payload box, push arrow, weak-motor leg tint. Verified on a rendered clip.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
