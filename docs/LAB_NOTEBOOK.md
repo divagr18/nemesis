@@ -71,6 +71,18 @@ Times are IST.
   Cost: **13M env steps, about 6% of one baseline training run.** The CMA histories hold 896 failing candidates, which become a diverse training bank.
 - **Speed:** CMA-ES for all 8 programs of a round runs in one batched evaluation (θ is data), 30–45 s per round vs about 8× longer sequentially.
 
+## Oct 27: fine-tune round 1 (`ft_r1`)
+
+- Resumed PPO from `baseline_v2` for 50M steps (7 min) on 50% nominal, 40% bank (211 counterexamples: 8 shrunk failures plus history failures) and 10% uniform.
+- Nominal eval reward dipped from 28.6 to about 24 mid-run, then recovered to 25.4.
+- Before → after, same 16 seeds per scenario:
+  - nominal falls 0% → 0%
+  - **training counterexamples 81% → 40%**
+  - held-out hand-written attacks 21.7% → 18.4%
+- **Finding: a full-envelope uniform suite measures nothing.** Sampling every primitive uniformly at once gives about 100% falls for any policy. A DR arm trained on the full envelope would be a strawman. Fix: scaled envelopes (w=0.25 and 0.5 around nominal), used for held-out evaluation, the uniform slice of the training mix, and the DR arm.
+- **CVaR@10% on binary falls saturates at 1.0.** Fix: compute it on the continuous robustness margin.
+- Nominal "progress" needs a fixed command. Neutral θ lets the joystick sample random commands.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
@@ -81,3 +93,4 @@ Times are IST.
 | Oct 26 | Headline: a discovery curve plus CVaR@10% | Isolates the LLM's contribution; the mean vs DR is likely small and noisy |
 | Oct 27 | Command profile searchable by every adversary | Otherwise the comparison favors the LLM |
 | Oct 27 | Fine-tune bank = shrunk failures + history failures; 50/40/10 nominal/bank/uniform | Diversity around each mode; keep nominal performance |
+| Oct 27 | DR arm and held-out suites use scaled envelopes (w=0.25, 0.5), not the full envelope | The full envelope is ~100% unsurvivable, so it would make a strawman baseline |
