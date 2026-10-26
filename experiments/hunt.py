@@ -32,7 +32,7 @@ def main():
     ap.add_argument("--pop", type=int, default=24)
     ap.add_argument("--gens", type=int, default=12)
     ap.add_argument("--seeds", type=int, default=8)
-    ap.add_argument("--horizon", type=int, default=300)
+    ap.add_argument("--horizon", type=int, default=250)
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -50,29 +50,35 @@ def main():
         t0 = time.time()
         programs = propose(n=args.per_round, history=archive.history_for_prompt(), seed=rnd)
         print(f"\n=== round {rnd}: {len(programs)} programs from Wonder ({time.time() - t0:.0f}s)")
-        for p in programs:
-            c = compile_program(p)
-            t1 = time.time()
-            res = cmaes.search(ev, params, c, pop=args.pop, gens=args.gens, seeds=args.seeds, key=rnd)
-            steps = res.env_steps
+        compiled = [compile_program(p) for p in programs]
+        t1 = time.time()
+        results = cmaes.search_many(ev, params, compiled, pop=args.pop, gens=args.gens,
+                                    seeds=args.seeds, key=rnd, slots=args.per_round)
+        print(f"  searched {len(compiled)} programs in parallel ({time.time() - t1:.0f}s)")
+        finals = []
+        for res in results:
             theta, shrink_steps = res.best_theta, 0
             if res.found_failure:
                 theta, shrink_steps = cmaes.shrink(ev, params, res.best_theta, seeds=args.seeds)
-            final = ev(params, theta[None], seeds=32, key=99)  # fresh seeds for the reported rate
-            fail_rate = float(final["fell"].mean())
+            finals.append((res, theta, shrink_steps))
+        # Fresh seeds for the reported fail rates, all programs in one batch.
+        check = ev(params, np.stack([th for _, th, _ in finals]), seeds=32, key=99)
+        for j, (res, theta, shrink_steps) in enumerate(finals):
+            p = res.program.program
+            fail_rate = float(check["fell"][j].mean())
             found = fail_rate >= cmaes.FAIL_RATE
-            total_steps += steps + shrink_steps + 32 * args.horizon
+            total_steps += res.env_steps + shrink_steps + 32 * args.horizon
             rec = archive.add(
                 round=rnd, name=p.name, hypothesis=p.hypothesis, program=p.model_dump(),
                 found=found, fail_rate=fail_rate, cost=float(cmaes.plausibility_cost(theta[None])[0]),
-                time_to_fall=float(final["time_to_fall"].mean()), theta=theta,
+                time_to_fall=float(check["time_to_fall"][j].mean()), theta=theta,
                 theta_desc=C.describe(theta), searched_fail_rate=res.best_fail_rate,
-                env_steps=steps + shrink_steps, policy=args.run, source="llm+cma",
+                env_steps=res.env_steps + shrink_steps, policy=args.run, source="llm+cma",
             )
             with open(out / f"history_{rec['id']}.pkl", "wb") as f:
                 pickle.dump(res.history, f)
             print(f"  {'BROKE ' if found else 'held  '} {p.name:40s} fall={fail_rate:.2f} "
-                  f"cost={rec['cost']:.2f} gens={len(res.history)} ({time.time() - t1:.0f}s)  {rec['theta_desc']}")
+                  f"cost={rec['cost']:.2f} gens={len(res.history)}  {rec['theta_desc']}")
 
     fails = archive.failures()
     summary = {"programs": len(archive.records), "failures": len(fails), "env_steps": total_steps}

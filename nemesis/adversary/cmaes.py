@@ -57,36 +57,79 @@ def fitness(result: dict, thetas: np.ndarray) -> tuple[np.ndarray, np.ndarray, n
     return f, fail_rate, cost
 
 
-def search(evaluator, params, program: Compiled, pop: int = 24, gens: int = 12, seeds: int = 8,
-           key: int = 0, patience: int = 4, record: bool = True) -> SearchResult:
-    k = max(program.k, 1)
-    es = CMA_ES(population_size=pop, solution=jp.zeros(k))
-    es_params = es.default_params
-    rng = jax.random.PRNGKey(key)
-    state = es.init(rng, jp.zeros(k), es_params)
+def search(evaluator, params, program: Compiled, **kw) -> SearchResult:
+    return search_many(evaluator, params, [program], **kw)[0]
 
-    best = (np.inf, None, 0.0, 1.0)
-    history, steps, stale = [], 0, 0
-    for g in range(gens):
-        rng, k_ask, k_tell = jax.random.split(rng, 3)
-        z, state = es.ask(k_ask, state, es_params)
-        u = np.zeros((pop, getattr(program, "width", K_MAX)), np.float32)
-        u[:, :k] = np.asarray(jax.nn.sigmoid(z))[:, :k] if program.k else 0.5
-        thetas = np.stack([np.asarray(program.theta_unit(ui)) for ui in u])
-        res = evaluator(params, thetas, seeds=seeds, key=key)  # common random seeds per generation
-        steps += pop * seeds * evaluator.horizon
+
+class _Run:
+    """CMA-ES state for one program inside a batched multi-program search."""
+
+    def __init__(self, program, pop, rng):
+        self.program, self.k = program, max(program.k, 1)
+        self.es = CMA_ES(population_size=pop, solution=jp.zeros(self.k))
+        self.es_params = self.es.default_params
+        self.state = self.es.init(rng, jp.zeros(self.k), self.es_params)
+        self.best = (np.inf, None, 0.0, 1.0)
+        self.history, self.steps, self.stale = [], 0, 0
+        self.done = False
+
+    def ask(self, rng, pop):
+        z, self.state = self.es.ask(rng, self.state, self.es_params)
+        u = np.zeros((pop, getattr(self.program, "width", K_MAX)), np.float32)
+        u[:, :self.k] = np.asarray(jax.nn.sigmoid(z))[:, :self.k] if self.program.k else 0.5
+        return z, np.stack([np.asarray(self.program.theta_unit(ui)) for ui in u])
+
+    def tell(self, rng, z, thetas, res, patience, record):
         f, fail_rate, cost = fitness(res, thetas)
-        state, _ = es.tell(k_tell, z, jp.asarray(f), state, es_params)
+        self.state, _ = self.es.tell(rng, z, jp.asarray(f), self.state, self.es_params)
         if record:
-            history.append({"thetas": thetas, "fitness": f, "fail_rate": fail_rate, "cost": cost})
+            self.history.append({"thetas": thetas, "fitness": f, "fail_rate": fail_rate, "cost": cost})
         i = int(np.argmin(f))
-        if f[i] < best[0] - 1e-3:
-            best, stale = (float(f[i]), thetas[i], float(fail_rate[i]), float(cost[i])), 0
+        if f[i] < self.best[0] - 1e-3:
+            self.best, self.stale = (float(f[i]), thetas[i], float(fail_rate[i]), float(cost[i])), 0
         else:
-            stale += 1
-        if program.k == 0 or stale >= patience:
+            self.stale += 1
+        self.done = self.program.k == 0 or self.stale >= patience
+
+    def result(self) -> SearchResult:
+        b = self.best
+        return SearchResult(self.program, b[1], b[0], b[2], b[3], self.steps, self.history)
+
+
+def search_many(evaluator, params, programs: list, pop: int = 24, gens: int = 12, seeds: int = 8,
+                key: int = 0, patience: int = 4, record: bool = True, slots: int | None = None):
+    """Runs CMA-ES for several programs at once: every generation, all programs' candidates go
+    through ONE batched evaluation (θ is data, so the GPU sees one big batch).
+
+    `slots` fixes the number of programs per batch (finished or missing programs are padded with
+    nominal θ and not charged), so the evaluator compiles once for the whole hunt.
+    """
+    slots = slots or len(programs)
+    rng = jax.random.PRNGKey(key)
+    runs = []
+    for p in programs:
+        rng, k = jax.random.split(rng)
+        runs.append(_Run(p, pop, k))
+    pad = np.repeat(C.neutral()[None], pop, axis=0)
+
+    for _ in range(gens):
+        active = [r for r in runs if not r.done]
+        if not active:
             break
-    return SearchResult(program, best[1], best[0], best[2], best[3], steps, history)
+        for start in range(0, len(active), slots):
+            chunk = active[start:start + slots]
+            asked = []
+            for r in chunk:
+                rng, k = jax.random.split(rng)
+                asked.append(r.ask(k, pop))
+            batch = [th for _, th in asked] + [pad] * (slots - len(chunk))
+            res = evaluator(params, np.concatenate(batch), seeds=seeds, key=key)  # common seeds
+            for j, (r, (z, th)) in enumerate(zip(chunk, asked)):
+                part = {name: v[j * pop:(j + 1) * pop] for name, v in res.items()}
+                rng, k = jax.random.split(rng)
+                r.tell(k, z, th, part, patience, record)
+                r.steps += pop * seeds * evaluator.horizon
+    return [r.result() for r in runs]
 
 
 def shrink(evaluator, params, theta: np.ndarray, seeds: int = 8, key: int = 1, iters: int = 4):

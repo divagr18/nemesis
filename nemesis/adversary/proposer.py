@@ -21,7 +21,7 @@ Robot: Unitree Go1 (12 kg, 12 position-controlled motors, Kp=35, torque limits 2
 35.5 Nm calf), trained with PPO in MuJoCo to track a joystick command (forward/sideways velocity and
 yaw rate) on flat ground with mild domain randomization. It observes 3 frames of: body linear
 velocity estimate, gyro, gravity direction, joint angles and velocities, last action, command.
-Each attack episode lasts 6 seconds (300 control steps at 50 Hz). A failure is a fall: any body
+Each attack episode lasts 5 seconds (250 control steps at 50 Hz). A failure is a fall: any body
 part other than the feet touching the ground, tilt beyond 45 degrees, or trunk below 0.18 m.
 
 How to attack well:
