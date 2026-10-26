@@ -58,11 +58,14 @@ def _reset_theta_normalizer(norm):
 
     count = norm.count
     n = float(count.hi) * 2**32 + float(count.lo) if hasattr(count, "hi") else float(count)
+    import jax.numpy as jnp
+
     P, D = "privileged_state", C.D
+    pin = lambda x, v: jnp.asarray(x).at[-D:].set(v)  # noqa: E731  (checkpoints load as numpy)
     return norm.replace(
-        mean={**norm.mean, P: norm.mean[P].at[-D:].set(0.0)},
-        summed_variance={**norm.summed_variance, P: norm.summed_variance[P].at[-D:].set(n)},
-        std={**norm.std, P: norm.std[P].at[-D:].set(1.0)},
+        mean={**norm.mean, P: pin(norm.mean[P], 0.0)},
+        summed_variance={**norm.summed_variance, P: pin(norm.summed_variance[P], n)},
+        std={**norm.std, P: pin(norm.std[P], 1.0)},
     )
 
 

@@ -66,6 +66,7 @@ def test_theta_normalizer_is_pinned_on_resume():
     norm = running_statistics.init_state(spec)
     batch = {"state": jp.ones((64, 144)), "privileged_state": jp.ones((64, 123 + C.D))}
     norm = running_statistics.update(norm, batch)  # constant inputs -> std clamps to the minimum
+    norm = jax.device_get(norm)  # checkpoints are saved with device_get and load as numpy
     fixed = _reset_theta_normalizer(norm)
     std = np.asarray(fixed.std["privileged_state"])
     assert np.allclose(std[-C.D:], 1.0) and np.allclose(np.asarray(fixed.mean["privileged_state"][-C.D:]), 0.0)
