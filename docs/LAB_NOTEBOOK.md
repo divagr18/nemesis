@@ -118,6 +118,34 @@ Times are IST.
 - No NaN rollouts in the bank. The earlier `nan` was in the hand-written suite with `ft_r1`; the code audit is investigating it.
 - Launched an Opus code audit and a Sonnet literature review on adversarial fine-tuning before starting the main experiment.
 
+## Oct 27: pre-experiment code audit and fine-tuning literature review
+
+Before running the main experiment, an Opus subagent audited every module against the installed library source, and a Sonnet subagent reviewed the fine-tuning literature ([finetune_review.md](finetune_review.md)). All findings were fixed in commit `04617ae`, with regression tests in `tests/test_audit_fixes.py` (32/32 passing).
+
+**Critical bugs found:**
+1. **The critic's θ inputs exploded on resume.** The nominal-only baseline left the observation normalizer with std ≈ 1e-6 on the θ dims. Real bank θ then reached the critic at |z| up to **1.2e6**, still 15–200× out of scale after 50M steps, so advantages were garbage on exactly the bank episodes. Fix: pin those normalizer entries to mean 0, std 1 when resuming.
+2. **Forced resets every 3.2 s.** Brax's `num_resets_per_eval=10` with 50M steps and 5 evals resets all envs every 160 steps. Verified in `ft_r1` and `ft_r2`: scenario events after 3.2 s were never experienced in fine-tuning. Fix: cap resets so each interval spans at least one episode.
+
+**High:**
+- **Slopes and pushes were in the world frame, but the start yaw is random.** Probe: "uphill" was downhill in 3 of 4 seeds. Fix: both are now relative to the start heading.
+- The survivor robustness score was unbounded below, so stand-still survivors could outrank falls in CMA-ES. Clipped to [0, 1].
+- NaN states were scored as survivors, and a NaN could freeze CMA-ES's best tracking. Fixed in three places.
+- The wrapper couldn't see Brax time-limit truncation: θ wasn't resampled and pushes never fired in later episodes.
+- Arm-runner fairness: up to about 50% attack-budget overshoot, and nominal rather than actual Brax step counts were charged.
+
+**Medium:**
+- The fall penalty was −1×dt = −0.02, less than one step's reward, so **in hard scenarios falling early paid off**. Now 1.0.
+- Learning rate when resuming is now 1e-4.
+- CMA-ES reused the same 8 seeds every generation, overfitting their start poses.
+- Start times were treated as magnitudes in the plausibility cost and shrinking.
+
+**Literature additions:**
+- Bank curation: quarantine items the current policy fails at ≥95% (likely infeasible).
+- Weight by learnability p(1−p) with a replay floor.
+- Equal weight per failure family.
+
+**Implication:** the `ft_r1` and `ft_r2` numbers above were produced with these bugs present. They are directionally useful but are superseded by the re-validation run (`hunt_v3`, `ft_v3`).
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
