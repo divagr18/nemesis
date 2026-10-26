@@ -94,6 +94,7 @@ def translate(text: str) -> Program:
 
 
 def run_attack(program: Program) -> dict:
+    from nemesis.sim.overlays import overlays
     from nemesis.sim.render import render_qpos, save_video, tile
 
     ev, params, base_params = evaluator()
@@ -108,8 +109,11 @@ def run_attack(program: Program) -> dict:
     falls = [r["time_to_fall"][0, 0] / ev.env.dt for r in (rec_old, rec_new) if r["fell"][0, 0]]
     T = rec_new["qpos"].shape[2]
     t_end = int(min(T, max(falls) + 75)) if len(falls) == 2 else T
-    clips = [render_qpos(ev.env.mj_model, r["qpos"][0, 0][:t_end], width=480, height=360)
-             for r in (rec_old, rec_new)]
+    clips = []
+    for r in (rec_old, rec_new):
+        q = r["qpos"][0, 0][:t_end]
+        model, scene_fn = overlays(ev.env.mj_model, theta, q, ev.env.dt)  # make the attack visible
+        clips.append(render_qpos(model, q, width=480, height=360, scene_fn=scene_fn))
     CLIPS.mkdir(parents=True, exist_ok=True)
     save_video(tile(clips, cols=2), CLIPS / f"{clip_id}.mp4", ev.env)
     return {
