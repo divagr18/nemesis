@@ -24,15 +24,46 @@ from nemesis import config
 from nemesis.envs.base import load_env
 
 
-def ppo_config(env_name: str, num_timesteps: int | None = None, num_evals: int | None = None):
+def ppo_config(env_name: str, num_timesteps: int | None = None, num_evals: int | None = None,
+               learning_rate: float | None = None):
     """Playground's tuned PPO config. Brax rounds the budget up to whole eval epochs."""
     params = locomotion_params.brax_ppo_config(env_name)
     if num_timesteps:
         params.num_timesteps = num_timesteps
     if num_evals:
         params.num_evals = num_evals
+    if learning_rate:
+        params.learning_rate = learning_rate
     params.num_envs = config.profile().num_envs
+    _cap_forced_resets(params)
     return params
+
+
+def _cap_forced_resets(params) -> None:
+    """Brax force-resets every env `num_resets_per_eval` times per eval interval. With short runs
+    that interval drops below one episode (3.2 s for a 50M fine-tune with 5 evals), so scenario
+    events after it are never experienced. Cap it so every interval spans >= one full episode."""
+    per_env = params.batch_size * params.num_minibatches // params.num_envs * params.unroll_length
+    need = -(-params.episode_length // per_env)  # training steps per episode, rounded up
+    per_step = params.batch_size * params.num_minibatches * params.unroll_length
+    cap = params.num_timesteps // (max(params.num_evals - 1, 1) * per_step * need)
+    params.num_resets_per_eval = int(max(0, min(params.num_resets_per_eval, cap)))
+
+
+def _reset_theta_normalizer(norm):
+    """θ is appended to the critic input already in [-1, 1]. A policy trained on nominal θ only
+    has a running std of ~1e-6 on those dims, so resuming on a bank would feed the critic values
+    up to ~1e6. Pin them to mean 0, std 1 with a large count so updates barely move them."""
+    from nemesis.perturb import canonical as C
+
+    count = norm.count
+    n = float(count.hi) * 2**32 + float(count.lo) if hasattr(count, "hi") else float(count)
+    P, D = "privileged_state", C.D
+    return norm.replace(
+        mean={**norm.mean, P: norm.mean[P].at[-D:].set(0.0)},
+        summed_variance={**norm.summed_variance, P: norm.summed_variance[P].at[-D:].set(n)},
+        std={**norm.std, P: norm.std[P].at[-D:].set(1.0)},
+    )
 
 
 def train(
@@ -46,6 +77,7 @@ def train(
     env=None,
     eval_env=None,
     nemesis: bool = True,
+    learning_rate: float | None = None,
 ):
     """Trains a policy.
 
@@ -64,7 +96,10 @@ def train(
     else:
         env = env or load_env(env_name, body_collisions=False)[0]
         eval_env = eval_env or load_env(env_name, body_collisions=False)[0]
-    params = ppo_config(env_name, num_timesteps, num_evals)
+    params = ppo_config(env_name, num_timesteps, num_evals, learning_rate)
+    if restore_params is not None and nemesis:
+        norm, pol, val = restore_params
+        restore_params = (_reset_theta_normalizer(norm), pol, val)
 
     (run_dir / "config.json").write_text(json.dumps({
         "env_name": env_name, "impl": config.SIM_IMPL, "seed": seed, "nemesis": nemesis,
@@ -73,8 +108,10 @@ def train(
 
     t0 = time.time()
     metrics_f = open(run_dir / "metrics.jsonl", "a")
+    last_step = [0]
 
     def progress(step, metrics):
+        last_step[0] = int(step)
         row = {"step": int(step), "elapsed_s": round(time.time() - t0, 1)}
         row.update({k: float(v) for k, v in metrics.items() if k.startswith("eval/")})
         metrics_f.write(json.dumps(row) + "\n")
@@ -100,8 +137,8 @@ def train(
         **kw,
     )
     metrics_f.close()  # Brax calls policy_params_fn after the final eval, so the last ckpt exists.
-    print(f"done in {time.time() - t0:.0f}s -> {run_dir}", flush=True)
-    return make_inference_fn, policy_params
+    print(f"done in {time.time() - t0:.0f}s ({last_step[0]:,} env steps) -> {run_dir}", flush=True)
+    return make_inference_fn, policy_params, last_step[0]  # Brax rounds the budget up; this is actual
 
 
 def checkpoints(run_dir: str | Path) -> list[Path]:

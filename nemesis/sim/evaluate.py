@@ -45,7 +45,7 @@ class Evaluator:
         yaw0 = 2 * jp.arctan2(q0[6], q0[3])
 
         def body(carry, t):
-            s, alive, margin, err_sum, n_alive, t_fall, fall_g = carry
+            s, alive, margin, err_sum, n_alive, t_fall, fall_g, q_last = carry
             action, _ = policy(s.obs, jax.random.fold_in(rng, t))
             cmd = s.info["command"]
             s = env.step(s, action)
@@ -53,6 +53,7 @@ class Evaluator:
             h, up = s.data.qpos[2], s.data.xmat[A.TRUNK][2, 2]
             m = jp.minimum((h - MIN_HEIGHT) / 0.1, (up - MIN_UP_Z) / (1 - MIN_UP_Z))
             m = jp.where(fell, jp.minimum(m, 0.0) - 0.1, m)
+            m = jp.where(jp.isfinite(m), m, -1.1)  # diverged simulation counts as a fall
             v = self._raw.get_local_linvel(s.data)
             err = jp.linalg.norm(v[:2] - cmd[:2])
             margin = jp.where(alive, jp.minimum(margin, m), margin)
@@ -63,18 +64,23 @@ class Evaluator:
             # (x>0: nose down, x<0: nose up, y>0: rolled right, y<0: rolled left).
             g = s.data.xmat[A.TRUNK].T @ jp.array([0.0, 0.0, -1.0])
             fall_g = jp.where(alive & fell, g, fall_g)
+            q_last = jp.where(alive & ~fell & jp.isfinite(s.data.qpos).all(), s.data.qpos, q_last)
             alive = alive & ~fell
             out = s.data.qpos if record else None
-            return (s, alive, margin, err_sum, n_alive, t_fall, fall_g), out
+            return (s, alive, margin, err_sum, n_alive, t_fall, fall_g, q_last), out
 
         init = (s, jp.ones((), bool), jp.full((), 1.0), jp.zeros(()), jp.zeros(()), jp.full((), T),
-                jp.zeros(3))
-        (s, alive, margin, err_sum, n_alive, t_fall, fall_g), qpos = jax.lax.scan(body, init, jp.arange(T))
+                jp.zeros(3), q0)
+        (s, alive, margin, err_sum, n_alive, t_fall, fall_g, q1), qpos = jax.lax.scan(
+            body, init, jp.arange(T))
 
         track_err = err_sum / jp.maximum(n_alive, 1.0)
-        q1 = s.data.qpos
+        # Progress up to the last upright step (not sliding after a fall or a diverged state).
         progress = (q1[0] - q0[0]) * jp.cos(yaw0) + (q1[1] - q0[1]) * jp.sin(yaw0)
-        survived_score = jp.minimum(margin, (TRACK_TOL - track_err) / TRACK_TOL)
+        # Survivors score in [0, 1]: a robot that stands still without falling must never outrank a
+        # real fall, whose score is in [-1, 0).
+        track_score = jp.clip((TRACK_TOL - track_err) / TRACK_TOL, 0.0, 1.0)
+        survived_score = jp.clip(jp.minimum(margin, track_score), 0.0, 1.0)
         robustness = jp.where(alive, survived_score, -1.0 + t_fall / T)
         out = {
             "fell": ~alive,

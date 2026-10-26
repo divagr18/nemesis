@@ -34,9 +34,13 @@ MIN_UP_Z = float(np.cos(np.deg2rad(45)))
 class NemesisWrapper(pg_wrapper.Wrapper):
     def __init__(self, env, bank: np.ndarray | None = None, nominal_frac: float = 0.5,
                  uniform: bool = False, lo: np.ndarray | None = None, hi: np.ndarray | None = None,
-                 base_dr: bool = True, uniform_frac: float = 0.0):
+                 base_dr: bool = True, uniform_frac: float = 0.0, bank_weights: np.ndarray | None = None,
+                 fall_penalty: float = 1.0):
         """
         bank: [N, D] scenarios to sample from. uniform=True samples U(lo, hi) per episode instead.
+        bank_weights: [N] sampling probabilities for the bank (default uniform), e.g. learnability.
+        fall_penalty: reward subtracted on a fall. Playground's termination term is only -1*dt,
+            less than one step of nominal reward, so in hard scenarios falling early pays off.
         nominal_frac: probability an episode runs with neutral θ.
         uniform_frac: probability an episode samples U(lo, hi) even in bank mode (the 10% slice
             of the nominal / counterexample / uniform training mix).
@@ -44,6 +48,9 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         """
         super().__init__(env)
         self._bank = jp.asarray(bank if bank is not None else C.neutral()[None], jp.float32)
+        w = np.ones(len(self._bank)) if bank_weights is None else np.asarray(bank_weights, np.float64)
+        self._bank_logits = jp.asarray(np.log(np.maximum(w / w.sum(), 1e-12)), jp.float32)
+        self._fall_penalty = fall_penalty
         self._nominal_frac = nominal_frac
         self._uniform = uniform
         self._lo = jp.asarray(C.LO if lo is None else lo)
@@ -53,6 +60,7 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         raw = env.unwrapped
         self._body_geoms = jp.asarray(getattr(raw, "_nemesis_body_geoms", []), jp.int32)
         self._scales = dict(raw._config.reward_config.scales)
+        self._episode_length = int(raw._config.episode_length)
 
     @property
     def observation_size(self):
@@ -67,7 +75,7 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         if self._uniform:
             theta = uni
         else:
-            theta = self._bank[jax.random.randint(k1, (), 0, self._bank.shape[0])]
+            theta = self._bank[jax.random.categorical(k3, self._bank_logits)]
         r = jax.random.uniform(k2)
         theta = jp.where(r < self._nominal_frac + self._uniform_frac, uni, theta)
         return jp.where(r < self._nominal_frac, jp.asarray(C.NEUTRAL), theta)
@@ -77,11 +85,11 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         return A.sample_base_dr(rng, model) if self._base_dr else A.neutral_base_dr(model)
 
     @contextlib.contextmanager
-    def _perturbed(self, theta, dr):
+    def _perturbed(self, theta, dr, yaw=0.0):
         env = self.env.unwrapped
         base = env._mjx_model
         try:
-            env._mjx_model = A.apply_model(A.apply_base_dr(base, dr), theta)
+            env._mjx_model = A.apply_model(A.apply_base_dr(base, dr), theta, yaw)
             yield
         finally:
             env._mjx_model = base
@@ -89,17 +97,19 @@ class NemesisWrapper(pg_wrapper.Wrapper):
     # --- Fall detection ---
 
     def fallen(self, data):
-        """Real fall: a non-foot body touches the ground, tilt over 45°, or the trunk is too low."""
+        """Real fall: a non-foot body touches the ground, tilt over 45°, the trunk is too low, or the
+        simulation diverged (non-finite state)."""
         c = data.contact
         body = jp.isin(c.geom[:, 0], self._body_geoms) | jp.isin(c.geom[:, 1], self._body_geoms)
         touching = jp.any(body & (c.dist < 0.0)) if self._body_geoms.size else False
         up_z = data.xmat[A.TRUNK][2, 2]
-        return touching | (up_z < MIN_UP_Z) | (data.qpos[2] < MIN_HEIGHT)
+        diverged = ~(jp.isfinite(data.qpos).all() & jp.isfinite(data.qvel).all())
+        return touching | (up_z < MIN_UP_Z) | (data.qpos[2] < MIN_HEIGHT) | diverged
 
     # --- Observations ---
 
-    def _obs(self, theta, obs, data, rng, cmd, hist):
-        obs = A.perturb_obs(theta, obs, data, rng, cmd)
+    def _obs(self, theta, obs, data, rng, cmd, hist, yaw=0.0):
+        obs = A.perturb_obs(theta, obs, data, rng, cmd, yaw)
         hist = jp.concatenate([obs["state"][None], hist[:-1]], axis=0)
         priv = jp.concatenate([obs["privileged_state"], C.normalized(theta)])
         return {"state": hist.reshape(-1), "privileged_state": priv}, hist
@@ -126,8 +136,10 @@ class NemesisWrapper(pg_wrapper.Wrapper):
             nemesis_resample=jp.ones((), bool),
         )
         state.metrics["nemesis_fall"] = jp.zeros(())
+        q = state.data.qpos
+        yaw = 2 * jp.arctan2(q[6], q[3])
         hist = jp.zeros((HISTORY, STATE))
-        obs, hist = self._obs(theta, state.obs, state.data, k, cmd, hist)
+        obs, hist = self._obs(theta, state.obs, state.data, k, cmd, hist, yaw)
         state.info["nemesis_hist"] = hist
         return state.replace(obs=obs)
 
@@ -137,7 +149,8 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         rng, k_obs, k_theta, k_dr = jax.random.split(info["nemesis_rng"], 4)
         time = t * self.dt
 
-        # Position along the initial heading, for the ice patch (origin = pose at the first step).
+        # Start pose (x, y, heading), taken at the first step of each episode: the ice patch is
+        # measured along the heading, and slopes and pushes are defined relative to it.
         q = state.data.qpos
         yaw = 2 * jp.arctan2(q[6], q[3])
         origin = jp.where(t == 0, jp.array([q[0], q[1], yaw]), info["nemesis_origin"])
@@ -145,33 +158,38 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         theta_now = A.with_ice(theta, dist)
 
         applied, buf = A.delay_action(theta, info["nemesis_buf"], action)
-        xfrc = state.data.xfrc_applied.at[A.TRUNK, :3].set(A.push_force(theta, time))
+        xfrc = state.data.xfrc_applied.at[A.TRUNK, :3].set(A.push_force(theta, time, origin[2]))
         info["command"] = A.command(theta, time, info["command"])
         state = state.replace(data=state.data.replace(xfrc_applied=xfrc))
 
-        with self._perturbed(theta_now, dr):
+        with self._perturbed(theta_now, dr, origin[2]):
             state = self.env.step(state, applied)
 
-        # Strict termination and unclipped reward (Playground clips the per-step reward at 0).
+        # Strict termination and unclipped reward (Playground clips the per-step reward at 0),
+        # with a real fall penalty.
         fall = self.fallen(state.data)
         env_done = state.done > 0
         done = env_done | fall
         rewards = sum(state.metrics[f"reward/{k}"] for k in self._scales)
         extra_term = (fall & ~env_done) * self._scales.get("termination", 0.0)
-        reward = (rewards + extra_term) * self.dt
+        reward = (rewards + extra_term) * self.dt - self._fall_penalty * done
+        reward = jp.where(jp.isfinite(reward), reward, -self._fall_penalty)
 
         cmd = A.command(theta, time + self.dt, state.info["command"])
-        obs, hist = self._obs(theta, state.obs, state.data, k_obs, cmd, state.info["nemesis_hist"])
+        obs, hist = self._obs(theta, state.obs, state.data, k_obs, cmd, state.info["nemesis_hist"],
+                              origin[2])
 
-        # Draw the next episode's θ and DR now; Brax's auto-reset then restarts the episode.
-        new = done & state.info["nemesis_resample"]
+        # Episode end, including Brax's time-limit truncation (which this wrapper cannot see as
+        # `done`): draw the next episode's θ and DR, and reset the clock, latency and history.
+        end = done | (t + 1 >= self._episode_length)
+        new = end & state.info["nemesis_resample"]
         state.info.update(
             command=cmd,
             nemesis_theta=jp.where(new, self.sample_theta(k_theta), theta),
             nemesis_dr=jax.tree.map(lambda a, b: jp.where(new, a, b), self.sample_dr(k_dr), dr),
-            nemesis_t=jp.where(done, 0, t + 1),
-            nemesis_buf=jp.where(done, jp.zeros_like(buf), buf),
-            nemesis_hist=jp.where(done, jp.zeros_like(hist), hist),
+            nemesis_t=jp.where(end, 0, t + 1),
+            nemesis_buf=jp.where(end, jp.zeros_like(buf), buf),
+            nemesis_hist=jp.where(end, jp.zeros_like(hist), hist),
             nemesis_origin=origin,
             nemesis_rng=rng,
         )

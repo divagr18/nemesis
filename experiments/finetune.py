@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from g2_attacks import PROGRAMS  # held-out, hand-written attacks  # noqa: E402
 
 from nemesis.adversary.archive import Archive  # noqa: E402
+from nemesis.adversary.bank import curate  # noqa: E402
 from nemesis.adversary.baselines import envelope, random_thetas  # noqa: E402
 from nemesis.envs.base import load_env  # noqa: E402
 from nemesis.perturb import canonical as C  # noqa: E402
@@ -88,6 +89,8 @@ def main():
     ap.add_argument("--per-program", type=int, default=32, help="history failures per broken program")
     ap.add_argument("--uniform-width", type=float, default=0.25, help="envelope width of the 10% uniform slice")
     ap.add_argument("--eval-only", action="store_true", help="skip training; re-run the comparison")
+    ap.add_argument("--no-curate", action="store_true", help="skip learnability/feasibility curation")
+    ap.add_argument("--lr", type=float, default=1e-4, help="fine-tuning learning rate (resume)")
     args = ap.parse_args()
 
     # Cumulative bank across every given atlas (comma-separated), so earlier fixes are replayed.
@@ -108,11 +111,19 @@ def main():
     np.save(out / "bank.npy", bank)
 
     if not args.eval_only:
+        weights = None
+        if not args.no_curate:
+            ev0 = Evaluator(NemesisWrapper(load_env()[0], base_dr=False), args.base, horizon=250)
+            cur = curate(ev0, load_params(args.base), bank)
+            (out / "bank_report.json").write_text(json.dumps(cur["report"], indent=1))
+            print(f"curated bank: {cur['report']}")
+            bank, weights = cur["bank"], cur["weights"]
         lo, hi = envelope(args.uniform_width)
-        env = NemesisWrapper(load_env()[0], bank=bank, nominal_frac=0.5, uniform_frac=0.1, lo=lo, hi=hi)
+        env = NemesisWrapper(load_env()[0], bank=bank, bank_weights=weights, nominal_frac=0.5,
+                             uniform_frac=0.1, lo=lo, hi=hi)
         eval_env = NemesisWrapper(load_env()[0], nominal_frac=1.0)
         train(run_dir=out, num_timesteps=args.steps, num_evals=args.evals, seed=args.seed,
-              restore_params=load_params(args.base), env=env, eval_env=eval_env)
+              restore_params=load_params(args.base), env=env, eval_env=eval_env, learning_rate=args.lr)
 
     # Before/after on identical scenarios and seeds.
     ev = Evaluator(NemesisWrapper(load_env()[0], base_dr=False), args.base, horizon=250)

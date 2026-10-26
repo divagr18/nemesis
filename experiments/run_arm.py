@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from nemesis.adversary import cmaes  # noqa: E402
 from nemesis.adversary.archive import Archive  # noqa: E402
+from nemesis.adversary.bank import curate  # noqa: E402
 from nemesis.adversary.baselines import BoxProgram, envelope, random_program, random_thetas  # noqa: E402
 from nemesis.adversary.modes import signature  # noqa: E402
 from nemesis.adversary.observe import observe_failure  # noqa: E402
@@ -92,7 +93,8 @@ def attack(arm, ev, params, rnd, args, archive, ledger, out, observations):
     rng = np.random.default_rng(args.seed * 1000 + rnd)
 
     if arm == "random":
-        while used() < budget:
+        batch_cost = args.pop * args.per_round * args.search_seeds * ev.horizon
+        while budget - used() >= batch_cost:
             th = random_thetas(args.pop * args.per_round, rng, width=1.0)
             res = ev(params, th, seeds=args.search_seeds, key=rnd)
             ledger.charge("attack", len(th) * args.search_seeds * ev.horizon)
@@ -101,7 +103,13 @@ def attack(arm, ev, params, rnd, args, archive, ledger, out, observations):
         return
 
     batch = 0
-    while used() < budget:
+    per_gen = args.per_round * args.pop * args.search_seeds * ev.horizon
+    while True:
+        # Never start a search the remaining budget cannot pay for (shrink and fresh-seed checks
+        # add a small, logged overshoot).
+        gens_now = min(args.gens, (budget - used()) // per_gen)
+        if gens_now < 2:
+            break
         extra = {}
         if arm == "nemesis":
             programs = propose(n=args.per_round, history=archive.history_for_prompt(),
@@ -114,7 +122,7 @@ def attack(arm, ev, params, rnd, args, archive, ledger, out, observations):
                         for _ in range(args.per_round)]
         elif arm == "box":
             compiled = [BoxProgram() for _ in range(args.per_round)]  # independent restarts
-        results = cmaes.search_many(ev, params, compiled, pop=args.pop, gens=args.gens,
+        results = cmaes.search_many(ev, params, compiled, pop=args.pop, gens=gens_now,
                                     seeds=args.search_seeds, key=args.seed * 100 + rnd * 10 + batch,
                                     slots=args.per_round)
         thetas, names = [], []
@@ -126,12 +134,13 @@ def attack(arm, ev, params, rnd, args, archive, ledger, out, observations):
             ledger.charge("attack", s_steps)
             name = r.program.program.name if getattr(r.program, "program", None) else f"{arm}_r{rnd}_{batch}_{k}"
             thetas.append(th), names.append(name)
-            with open(out / f"history_r{rnd}_{name}.pkl", "wb") as f:
+            with open(out / f"history_r{rnd}_b{batch}_k{k}.pkl", "wb") as f:
                 pickle.dump(r.history, f)
         for rec in check_and_archive(ev, params, thetas, names, rnd, archive, ledger, arm, extra):
             if arm == "nemesis" and rec["found"] and not args.no_observe:
                 clip = out / "clips" / f"r{rnd}_{rec['id']}.mp4"
                 spark = observe_failure(ev, params, np.array(rec["theta"], np.float32), clip)
+                ledger.charge("attack", 9 * ev.horizon)  # Spark's probe and recorded rollouts
                 observations.append(f"{rec['name']}: {spark['mode']}: {spark['what_happened']} "
                                     f"Likely cause: {spark['likely_cause']}")
         batch += 1
@@ -166,6 +175,7 @@ def main():
     ap.add_argument("--search-seeds", type=int, default=8)
     ap.add_argument("--horizon", type=int, default=250)
     ap.add_argument("--no-observe", action="store_true")
+    ap.add_argument("--lr", type=float, default=1e-4, help="fine-tuning learning rate (resume)")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -190,17 +200,23 @@ def main():
             if args.match == "total":
                 ft_steps += args.attack_steps
         else:
-            bank = np.concatenate([archive.thetas(failures_only=True), history_bank(out, args.seed)])
+            raw = np.concatenate([archive.thetas(failures_only=True), history_bank(out, args.seed)])
+            cur = curate(ev, params, raw)
+            with open(out / f"bank_r{rnd}.json", "w") as f:
+                json.dump(cur["report"], f, indent=1)
+            print(f"round {rnd} bank: {cur['report']}", flush=True)
+            bank, weights = cur["bank"], cur["weights"]
             if len(bank) == 0:
-                print(f"round {rnd}: no counterexamples found; fine-tuning on nominal + uniform only")
-                bank = C.neutral()[None]
+                print(f"round {rnd}: no usable counterexamples; fine-tuning on nominal + uniform only")
+                bank, weights = C.neutral()[None], None
             lo, hi = envelope(0.25)
-            env = NemesisWrapper(load_env()[0], bank=bank, nominal_frac=0.5, uniform_frac=0.1, lo=lo, hi=hi)
+            env = NemesisWrapper(load_env()[0], bank=bank, bank_weights=weights, nominal_frac=0.5,
+                                 uniform_frac=0.1, lo=lo, hi=hi)
         run_dir = out / f"round_{rnd}"
-        train(run_dir=run_dir, num_timesteps=ft_steps, num_evals=3, seed=args.seed * 10 + rnd,
-              restore_params=load_params(policy), env=env,
-              eval_env=NemesisWrapper(load_env()[0], nominal_frac=1.0))
-        ledger.charge("finetune", ft_steps)
+        _, _, actual = train(run_dir=run_dir, num_timesteps=ft_steps, num_evals=3, seed=args.seed * 10 + rnd,
+                             restore_params=load_params(policy), env=env, learning_rate=args.lr,
+                             eval_env=NemesisWrapper(load_env()[0], nominal_frac=1.0))
+        ledger.charge("finetune", actual)  # Brax rounds the budget up; charge what actually ran
         policy = str(run_dir)
         print(f"round {rnd} done in {time.time() - t0:.0f}s: {len(archive.failures())} failures, "
               f"{len(ledger.modes)} modes, steps {ledger.steps}", flush=True)

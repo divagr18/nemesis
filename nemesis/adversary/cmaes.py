@@ -25,12 +25,16 @@ SEARCH_FAIL = 0.75  # during search a candidate only "fails" above this, so it i
 SHRINK_FAIL = 0.8   # shrinking stops while the failure is still clearly reproducible
 
 
+NOT_MAGNITUDES = ("command_mode", "command_a", "command_b", "command_switch",
+                  "push1_start", "push2_start", "ice_start")
+
+
 def plausibility_cost(thetas: np.ndarray) -> np.ndarray:
     """Normalized distance from nominal in [0, 1]: RMS of per-slot deviation over the envelope,
     taken over the slots that deviate (so one strong change is as costly as several mild ones)."""
     dev = np.abs(thetas - C.NEUTRAL) / C.SPAN
-    dev[:, C.INDEX["command_mode"]] = 0  # the command profile is the task, not a perturbation
-    for name in ("command_a", "command_b", "command_switch"):
+    # The command profile is the task, and start times/positions are timing, not magnitude.
+    for name in NOT_MAGNITUDES:
         dev[:, C.INDEX[name]] = 0
     n = np.maximum((dev > 1e-6).sum(1), 1)
     return np.sqrt((dev**2).sum(1) / n)
@@ -56,6 +60,7 @@ def fitness(result: dict, thetas: np.ndarray) -> tuple[np.ndarray, np.ndarray, n
     robust = result["robustness"].mean(1)
     cost = plausibility_cost(thetas)
     f = np.where(fail_rate >= SEARCH_FAIL, -2.0 + cost, robust)
+    f = np.where(np.isfinite(f), f, np.inf)  # a NaN candidate must not freeze best-tracking
     return f, fail_rate, cost
 
 
@@ -114,7 +119,7 @@ def search_many(evaluator, params, programs: list, pop: int = 24, gens: int = 12
         runs.append(_Run(p, pop, k))
     pad = np.repeat(C.neutral()[None], pop, axis=0)
 
-    for _ in range(gens):
+    for gen in range(gens):
         active = [r for r in runs if not r.done]
         if not active:
             break
@@ -125,7 +130,9 @@ def search_many(evaluator, params, programs: list, pop: int = 24, gens: int = 12
                 rng, k = jax.random.split(rng)
                 asked.append(r.ask(k, pop))
             batch = [th for _, th in asked] + [pad] * (slots - len(chunk))
-            res = evaluator(params, np.concatenate(batch), seeds=seeds, key=key)  # common seeds
+            # Common random seeds within a generation; fresh seeds each generation, so the search
+            # cannot overfit a fixed set of start poses.
+            res = evaluator(params, np.concatenate(batch), seeds=seeds, key=key * 1000 + gen)
             for j, (r, (z, th)) in enumerate(zip(chunk, asked)):
                 part = {name: v[j * pop:(j + 1) * pop] for name, v in res.items()}
                 rng, k = jax.random.split(rng)
@@ -147,7 +154,7 @@ def shrink(evaluator, params, theta: np.ndarray, seeds: int = 8, key: int = 1, i
     steps = 0
     for s in C.SLOTS:
         sl = C.INDEX[s.name]
-        if s.name.startswith("command") or np.allclose(theta[sl], C.NEUTRAL[sl]):
+        if s.name in NOT_MAGNITUDES or np.allclose(theta[sl], C.NEUTRAL[sl]):
             continue
         lo, hi = 0.0, 1.0  # fraction of the way from nominal to the current value
         target = theta[sl].copy()
