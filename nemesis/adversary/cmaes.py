@@ -20,7 +20,8 @@ from evosax.algorithms import CMA_ES
 from nemesis.perturb import canonical as C
 from nemesis.perturb.dsl import K_MAX, Compiled
 
-FAIL_RATE = 0.5
+FAIL_RATE = 0.5    # a scenario counts as a failure if the robot falls in at least half the seeds
+SHRINK_FAIL = 0.8  # shrinking stops while the failure is still clearly reproducible
 
 
 def plausibility_cost(thetas: np.ndarray) -> np.ndarray:
@@ -135,6 +136,9 @@ def search_many(evaluator, params, programs: list, pop: int = 24, gens: int = 12
 def shrink(evaluator, params, theta: np.ndarray, seeds: int = 8, key: int = 1, iters: int = 4):
     """Delta-debugging: move each perturbed slot group toward nominal while the failure persists.
 
+    "Persists" means a fall rate of at least SHRINK_FAIL, not just FAIL_RATE: shrinking to the exact
+    boundary yields scenarios that fail ~50% of the time and drop below the bar on fresh seeds.
+
     Returns (minimal θ, env steps used). Groups are canonical slots (e.g. all four foot
     frictions move together); each is bisected between nominal and its current value.
     """
@@ -150,7 +154,7 @@ def shrink(evaluator, params, theta: np.ndarray, seeds: int = 8, key: int = 1, i
             mid = (lo + hi) / 2
             cand = theta.copy()
             cand[sl] = C.NEUTRAL[sl] + mid * (target - C.NEUTRAL[sl])
-            fail = evaluator(params, cand[None], seeds=seeds, key=key)["fell"].mean() >= FAIL_RATE
+            fail = evaluator(params, cand[None], seeds=seeds, key=key)["fell"].mean() >= SHRINK_FAIL
             steps += seeds * evaluator.horizon
             lo, hi = (lo, mid) if fail else (mid, hi)
         theta[sl] = C.NEUTRAL[sl] + hi * (target - C.NEUTRAL[sl])
