@@ -57,9 +57,10 @@ case "${1:-}" in
     ips | while read -r i ip st; do
       [ "$st" = running ] || continue
       (for _ in $(seq 1 30); do "${SSH[@]}" "ubuntu@$ip" true 2>/dev/null && break; sleep 8; done
-       (cd "$ROOT" && tar --exclude=.git --exclude='runs/*' --exclude=__pycache__ -czf - . \
-          runs/baseline_v2/config.json $(ls runs/baseline_v2/ckpts/*.pkl | tail -1)) \
-         | "${SSH[@]}" "ubuntu@$ip" 'mkdir -p ~/muse && tar -xzf - -C ~/muse && cloud-init status --wait >/dev/null; cd ~/muse && bash scripts/setup_linux.sh 2>&1 | tail -1' \
+       (cd "$ROOT" && tar --exclude=.git --exclude=./runs --exclude=__pycache__ --exclude=./.venv-win -czf - .) \
+         | "${SSH[@]}" "ubuntu@$ip" 'mkdir -p ~/muse && tar -xzf - -C ~/muse'
+       (cd "$ROOT" && tar -czf - runs/baseline_v2/config.json $(ls runs/baseline_v2/ckpts/*.pkl | tail -1)) \
+         | "${SSH[@]}" "ubuntu@$ip" 'tar -xzf - -C ~/muse && cloud-init status --wait >/dev/null; cd ~/muse && bash scripts/setup_linux.sh 2>&1 | tail -1' \
          | sed "s/^/[box $i] /") &
     done
     wait ;;
@@ -75,7 +76,7 @@ case "${1:-}" in
     mkdir -p "$ROOT/runs/arms"
     ips | while read -r i ip st; do
       [ "$st" = running ] || continue
-      "${SSH[@]}" "ubuntu@$ip" 'cd ~/muse/runs && tar --exclude="ckpts/0*" -czf - arms 2>/dev/null' | tar -xzf - -C "$ROOT/runs" && echo "[box $i] fetched"
+      "${SSH[@]}" "ubuntu@$ip" 'cd ~/muse/runs && tar -czf - arms 2>/dev/null' | tar -xzf - -C "$ROOT/runs" && echo "[box $i] fetched"
     done ;;
   down)
     read -r region _ < "$STATE"
