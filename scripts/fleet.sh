@@ -12,7 +12,7 @@ export MSYS_NO_PATHCONV=1
 STATE=~/.nemesis_fleet
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SSH=(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR
-     -o ConnectTimeout=10 -i ~/.ssh/id_ed25519)
+     -o ConnectTimeout=10 -o ServerAliveInterval=30 -i ~/.ssh/id_ed25519)
 REGION=$(head -1 "$STATE" 2>/dev/null | cut -d' ' -f1)
 
 ips() {
