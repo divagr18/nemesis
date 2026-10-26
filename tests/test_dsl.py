@@ -71,3 +71,15 @@ def test_control_adversaries():
     for seed in range(20):
         c = compile_program(random_program(3, seed))
         assert 1 <= c.k <= K_MAX
+
+
+def test_mode_signature():
+    from nemesis.adversary.modes import cause_family, fall_direction
+    th = C.neutral()
+    th[C.INDEX["foot_friction"]] = 0.1
+    assert cause_family(th) == "friction"
+    th2 = C.neutral()
+    th2[C.INDEX["latency"]] = 2.0
+    assert cause_family(th2) == "timing"
+    assert fall_direction(np.array([0.9, 0.1, -0.4])) == "forward"
+    assert fall_direction(np.array([0.1, -0.8, -0.5])) == "left"
