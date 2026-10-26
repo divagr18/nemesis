@@ -70,7 +70,7 @@ def search(evaluator, params, program: Compiled, pop: int = 24, gens: int = 12, 
     for g in range(gens):
         rng, k_ask, k_tell = jax.random.split(rng, 3)
         z, state = es.ask(k_ask, state, es_params)
-        u = np.zeros((pop, K_MAX), np.float32)
+        u = np.zeros((pop, getattr(program, "width", K_MAX)), np.float32)
         u[:, :k] = np.asarray(jax.nn.sigmoid(z))[:, :k] if program.k else 0.5
         thetas = np.stack([np.asarray(program.theta_unit(ui)) for ui in u])
         res = evaluator(params, thetas, seeds=seeds, key=key)  # common random seeds per generation

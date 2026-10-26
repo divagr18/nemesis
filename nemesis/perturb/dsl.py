@@ -144,6 +144,8 @@ class Compiled:
     hi: np.ndarray         # [K_MAX]
     names: list[str]       # free parameter names (len = number of active params)
 
+    width = K_MAX  # length of the u vector theta_unit expects
+
     @property
     def k(self) -> int:
         return len(self.names)

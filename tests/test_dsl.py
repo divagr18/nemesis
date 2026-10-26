@@ -59,3 +59,15 @@ def test_schema_lists_every_op():
     schema = str(json_schema())
     for op in ("friction", "ice_patch", "payload", "slope", "motor", "push", "command", "imu_bias"):
         assert op in schema
+
+
+def test_control_adversaries():
+    from nemesis.adversary.baselines import BoxProgram, random_program, random_thetas
+    th = random_thetas(16, np.random.default_rng(0))
+    assert th.shape == (16, C.D) and np.all(th >= C.LO - 1e-6) and np.all(th <= C.HI + 1e-6)
+    box = BoxProgram()
+    t = np.asarray(box.theta_unit(np.zeros(box.width, np.float32)))
+    assert t[C.INDEX["command_mode"]][0] == 1.0 and box.k > K_MAX
+    for seed in range(20):
+        c = compile_program(random_program(3, seed))
+        assert 1 <= c.k <= K_MAX
