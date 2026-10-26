@@ -104,7 +104,12 @@ def run_attack(program: Program) -> dict:
     rec_new = ev(params, theta[None], seeds=np.array([seed]), record=True)
     rec_old = ev(base_params, theta[None], seeds=np.array([seed]), record=True)
     clip_id = uuid.uuid4().hex[:10]
-    clips = [render_qpos(ev.env.mj_model, r["qpos"][0, 0], width=480, height=360) for r in (rec_old, rec_new)]
+    # End ~1.5 s after the later fall (no seconds of flailing on the floor); full length if both held.
+    falls = [r["time_to_fall"][0, 0] / ev.env.dt for r in (rec_old, rec_new) if r["fell"][0, 0]]
+    T = rec_new["qpos"].shape[2]
+    t_end = int(min(T, max(falls) + 75)) if len(falls) == 2 else T
+    clips = [render_qpos(ev.env.mj_model, r["qpos"][0, 0][:t_end], width=480, height=360)
+             for r in (rec_old, rec_new)]
     CLIPS.mkdir(parents=True, exist_ok=True)
     save_video(tile(clips, cols=2), CLIPS / f"{clip_id}.mp4", ev.env)
     return {
