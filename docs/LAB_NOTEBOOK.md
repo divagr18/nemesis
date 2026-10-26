@@ -165,6 +165,27 @@ Before running the main experiment, an Opus subagent audited every module agains
   - **nominal: 0% → 0% falls, progress 4.5 → 4.6 m**
 - **Takeaway:** the audit roughly doubled to tripled the held-out gains of a round at the same compute, and **removed the robustness-vs-speed tradeoff**. The policy is more robust *and* no slower.
 
+## Oct 27: main sweep launched; attack service working
+
+- **Smoke tests** (1 round, tiny budgets): all 5 arms run end to end. Bank curation is telling:
+  - **random:** 224 "failures", 221 quarantined
+  - **box (full-union CMA):** 264 → 28 kept
+  - **shuffled:** 261 → 105 kept
+  - **nemesis:** 166 → 68 kept
+
+  Uniform and blind full-envelope search mostly yields physically unsurvivable scenarios. Counting raw failure modes would hand random search the win (22 "modes" from 3.1M steps), so **the discovery metric counts only plausible (cost ≤ 0.5) and feasible (fresh-seed falls < 0.95) failures.** This rule was set before main results; see `experiments/analyze.py`.
+- On the smoke budget, full-union CMA found the most plausible modes (6, vs nemesis 2). It's a strong baseline, because the most-plausible-failure objective pushes every CMA arm toward realistic failures. To be reported honestly whatever the sweep shows.
+- **Fleet:** us-west-2 quota 32 vCPU approved, but **no g6e (L40S) capacity in any us-west-2 AZ**; got 4 × g6.2xlarge (L4). On an L4, 8192 envs fit (17 GB) at about 3× slower than an L40S. Sweep: 15 runs (5 arms × 3 seeds, 3 rounds, 10M attack + 40M fine-tune steps per round, total-steps matched) on 4 L4s + the Mumbai L40S.
+- Long SSH sessions to us-west-2 get reset, so jobs run detached (`scripts/fleet.sh run`) and are polled.
+- **PC C: drive** (0 → 47.5 GB free):
+  - NVIDIA DXCache (14.6 GB) and uv cache (18.7 GB) cleared
+  - uv cache inside WSL cleared (13 GiB), then `fstrim` and `diskpart compact`: WSL disk 72.9 → 59.8 GB
+  - Docker prune pending: Docker Desktop can't start over SSH
+- **Attack service (`server/app.py`, `web/dist/index.html`)** tested on the PC's 4060:
+  - "make the floor icy and shove it from the left" → Wonder: μ = 0.08 on all feet plus a 100 N push toward −y (correct: a shove *from* the left pushes right) at t = 2 s for 0.15 s. Both policies fall.
+  - "a heavy backpack on a steep ramp going uphill" → 5 kg raised payload plus a 16° slope.
+  - 55–79 s per request on the PC, dominated by software rendering in WSL. A GPU-EGL box should be about 15–20 s.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
