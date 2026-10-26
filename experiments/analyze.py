@@ -27,6 +27,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 COST_MAX = 0.5
 FEASIBLE_MAX = 0.95
+# Post-hoc (added after seeing partial results; reported next to, never instead of, the
+# pre-registered metric). The pre-registered cost is RMS over *deviating* slots, so perturbing
+# ~60 slots moderately scores ~0.45 and passes. These judge the total deviation and the number of
+# perturbation families active at once.
+TOTAL_DEV_MAX = 1.0
+FAMILIES_MAX = 3
 ARMS = ["dr", "random", "box", "shuffled", "nemesis"]
 
 
@@ -43,6 +49,23 @@ def load_runs(root: Path) -> dict:
     return runs
 
 
+def _total_dev_and_families(theta) -> tuple[float, int]:
+    from nemesis.adversary.cmaes import NOT_MAGNITUDES
+    from nemesis.adversary.modes import FAMILIES
+    from nemesis.perturb import canonical as C
+    th = np.asarray(theta, np.float32)
+    dev = np.abs(th - C.NEUTRAL) / C.SPAN
+    for name in NOT_MAGNITUDES:
+        dev[C.INDEX[name]] = 0
+    active = sum(any(dev[C.INDEX[sl]].max() > 1e-3 for sl in slots) for slots in FAMILIES.values())
+    return float(np.sqrt((dev ** 2).sum())), int(active)
+
+
+def _strict_ok(rec) -> bool:
+    total, fams = _total_dev_and_families(rec["theta"])
+    return total <= TOTAL_DEV_MAX and fams <= FAMILIES_MAX and rec["fail_rate"] < FEASIBLE_MAX
+
+
 def discovery(runs: dict) -> dict:
     """Distinct plausible+feasible failure modes per round (cumulative), per arm and seed."""
     out = {}
@@ -57,10 +80,20 @@ def discovery(runs: dict) -> dict:
                             and rec["cost"] <= COST_MAX and rec["fail_rate"] < FEASIBLE_MAX:
                         modes.add(tuple(rec["mode"]))
                 per_round.append(len(modes))
+            strict_round, strict_modes = [], set()
+            for k in range(n_rounds):
+                for rec in r["atlas"]:
+                    if rec.get("round") == k and rec.get("found") and rec.get("mode") and _strict_ok(rec):
+                        strict_modes.add(tuple(rec["mode"]))
+                strict_round.append(len(strict_modes))
             all_fail = [x for x in r["atlas"] if x.get("found")]
             ok = [x for x in all_fail if x["cost"] <= COST_MAX and x["fail_rate"] < FEASIBLE_MAX]
+            strict = [x for x in all_fail if _strict_ok(x)]
             out[arm][seed] = {
                 "modes_per_round": per_round,
+                "strict_modes_per_round": strict_round, "strict_failures": len(strict),
+                "families_active": int(np.median([_total_dev_and_families(x["theta"])[1] for x in all_fail]))
+                                   if all_fail else None,
                 "failures": len(all_fail), "plausible_feasible": len(ok),
                 "attack_steps": (r["budget"] or {}).get("steps", {}).get("attack"),
                 "finetune_steps": (r["budget"] or {}).get("steps", {}).get("finetune"),
@@ -132,6 +165,19 @@ def summary_md(disc: dict, ev: dict | None) -> str:
         L.append(f"| {arm} | {', '.join(str(v['modes_per_round']) for v in s.values())} | "
                  f"{np.mean(last):.1f} | {', '.join(str(v['plausible_feasible']) for v in s.values())} | "
                  f"{', '.join(f'{(v['attack_steps'] or 0)/1e6:.1f}M' for v in s.values())} |")
+    L += ["", f"## Discovery, post-hoc strict plausibility (total deviation <= {TOTAL_DEV_MAX}, "
+          f"<= {FAMILIES_MAX} perturbation families, feasible)", "",
+          "Added after partial results exposed a flaw in the pre-registered cost (see LAB_NOTEBOOK).", "",
+          "| Arm | modes per round (per seed) | mean after last round | strict failures | median families per failure |",
+          "|---|---|---|---|---|"]
+    for arm in ARMS:
+        if arm not in disc:
+            continue
+        s = disc[arm]
+        last = [v["strict_modes_per_round"][-1] for v in s.values() if v["strict_modes_per_round"]]
+        L.append(f"| {arm} | {', '.join(str(v['strict_modes_per_round']) for v in s.values())} | "
+                 f"{np.mean(last) if last else 0:.1f} | {', '.join(str(v['strict_failures']) for v in s.values())} | "
+                 f"{', '.join(str(v['families_active']) for v in s.values())} |")
     if ev:
         L += ["", "## Gauntlet (fall rate; lower is better) and nominal", "",
               "| Policy | hand | realistic | sobol (DR distribution) | CVaR10 hand | nominal progress (m) |",
