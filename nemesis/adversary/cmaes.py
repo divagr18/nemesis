@@ -84,7 +84,7 @@ class _Run:
         z, self.state = self.es.ask(rng, self.state, self.es_params)
         u = np.zeros((pop, getattr(self.program, "width", K_MAX)), np.float32)
         u[:, :self.k] = np.asarray(jax.nn.sigmoid(z))[:, :self.k] if self.program.k else 0.5
-        return z, np.stack([np.asarray(self.program.theta_unit(ui)) for ui in u])
+        return z, self.program.theta_units(u)
 
     def tell(self, rng, z, thetas, res, patience, record):
         f, fail_rate, cost = fitness(res, thetas)

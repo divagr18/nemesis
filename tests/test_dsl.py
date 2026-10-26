@@ -83,3 +83,13 @@ def test_mode_signature():
     assert cause_family(th2) == "timing"
     assert fall_direction(np.array([0.9, 0.1, -0.4])) == "forward"
     assert fall_direction(np.array([0.1, -0.8, -0.5])) == "left"
+
+
+def test_vectorized_theta_matches_scalar():
+    from nemesis.adversary.baselines import BoxProgram
+    c = compile_program(REAR_SLIP)
+    U = np.random.default_rng(0).random((5, K_MAX)).astype(np.float32)
+    np.testing.assert_allclose(c.theta_units(U), np.stack([np.asarray(c.theta_unit(u)) for u in U]), atol=1e-5)
+    box = BoxProgram()
+    U = np.random.default_rng(1).random((3, box.width)).astype(np.float32)
+    np.testing.assert_allclose(box.theta_units(U), np.stack([np.asarray(box.theta_unit(u)) for u in U]), atol=1e-5)

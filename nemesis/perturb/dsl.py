@@ -159,6 +159,12 @@ class Compiled:
         """θ for u in [0, 1]^K_MAX (search space)."""
         return self.theta(self.lo + (self.hi - self.lo) * u)
 
+    def theta_units(self, U: np.ndarray) -> np.ndarray:
+        """Vectorized numpy θ for a population U [P, K_MAX] (no per-candidate JAX dispatch)."""
+        V = self.lo + (self.hi - self.lo) * np.asarray(U, np.float32)
+        written = self.M.sum(0) > 0
+        return np.where(written, V @ self.M, self.base).astype(np.float32)
+
     def neutral_unit(self) -> np.ndarray:
         """u that puts every free parameter as close to neutral as its range allows."""
         u = np.zeros(K_MAX, np.float32)

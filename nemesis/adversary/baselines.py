@@ -70,6 +70,12 @@ class BoxProgram:
         vals = jp.asarray(C.LO)[self.idx] + jp.asarray(C.SPAN)[self.idx] * u
         return jp.asarray(self.base).at[self.idx].set(vals)
 
+    def theta_units(self, U: np.ndarray) -> np.ndarray:
+        """Vectorized numpy θ for a population U [P, k]."""
+        th = np.repeat(self.base[None], len(U), axis=0)
+        th[:, self.idx] = C.LO[self.idx] + C.SPAN[self.idx] * np.asarray(U, np.float32)[:, : self.k]
+        return th.astype(np.float32)
+
 
 _TEMPLATES = {
     "friction": lambda r: {"feet": r.sample(["FR", "FL", "RR", "RL"], r.randint(1, 4)), "mu": [0.05, 1.5]},
