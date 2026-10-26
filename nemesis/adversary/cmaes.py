@@ -20,8 +20,9 @@ from evosax.algorithms import CMA_ES
 from nemesis.perturb import canonical as C
 from nemesis.perturb.dsl import K_MAX, Compiled
 
-FAIL_RATE = 0.5    # a scenario counts as a failure if the robot falls in at least half the seeds
-SHRINK_FAIL = 0.8  # shrinking stops while the failure is still clearly reproducible
+FAIL_RATE = 0.5     # archived as a failure if the robot falls in at least half of 32 fresh seeds
+SEARCH_FAIL = 0.75  # during search a candidate only "fails" above this, so it is not borderline
+SHRINK_FAIL = 0.8   # shrinking stops while the failure is still clearly reproducible
 
 
 def plausibility_cost(thetas: np.ndarray) -> np.ndarray:
@@ -47,14 +48,14 @@ class SearchResult:
 
     @property
     def found_failure(self) -> bool:
-        return self.best_fail_rate >= FAIL_RATE
+        return self.best_fail_rate >= SEARCH_FAIL
 
 
 def fitness(result: dict, thetas: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     fail_rate = result["fell"].mean(1)
     robust = result["robustness"].mean(1)
     cost = plausibility_cost(thetas)
-    f = np.where(fail_rate >= FAIL_RATE, -2.0 + cost, robust)
+    f = np.where(fail_rate >= SEARCH_FAIL, -2.0 + cost, robust)
     return f, fail_rate, cost
 
 
