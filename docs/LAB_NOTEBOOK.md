@@ -227,6 +227,20 @@ Evaluated on the PC's 4060 with 8 seeds per scenario. Policies: baseline, dr s1/
 - **Flaw in the pre-registered discovery metric:** random search "wins" with 17.5 plausible+feasible modes vs nemesis 6. The plausibility cost is RMS over *deviating* slots, so a scenario perturbing ~60 slots moderately scores cost ≈ 0.45 and passes the ≤ 0.5 filter. Plan: report the pre-registered metric as-is *and* a corrected one (total deviation / number of active primitive groups), clearly labeled post-hoc.
 - **Hypothesis for the pivot:** DR is the industry default. The more useful question may be whether Nemesis finds and fixes failures that a DR-trained policy *still* has. Testing with a Nemesis hunt against `dr_s1`.
 
+## Oct 27: Nemesis vs the DR-trained policy, and the corrected discovery metric
+
+- **Hunt against `dr_s1/round_2`** (2 rounds × 8 Wonder hypotheses, 7.1M env steps, PC 4060): **1 of 16 broke it**, a braking reversal on an ice patch at 50% falls. Spark: "both hind feet slid backward and splayed on the ice while the front legs buckled… onto its knees". Everything else held at 0–6%, including attacks that broke `baseline_v2` 60–90% of the time. DR over w=0.5 leaves very few holes inside the envelope, and the one left is close to physically infeasible.
+- **Post-hoc strict discovery metric** (total deviation ≤ 1.0, ≤ 3 perturbation families, feasible), partial runs:
+  - random: 0 modes (median 7 families stacked per failure)
+  - shuffled: 9 modes, 21 failures (1 seed)
+  - nemesis: 6.5 modes, 10 / 8 failures (2 seeds)
+  - Correcting the metric removes random search's spurious win, but **Wonder's hypotheses are not more efficient than blind random programs** at finding distinct plausible failures at this budget.
+- **Current honest conclusions (partial, n ≤ 2 per arm):**
+  1. Matched-compute DR over a well-chosen envelope is the best *training* method here.
+  2. LLM proposals are not more *search*-efficient than structured random programs.
+  3. Nemesis's distinctive outputs are *explanations*: named, physically reasoned hypotheses, minimal counterexamples, and Spark's video diagnoses. Plus the plain-language attack interface.
+- Open question for a fair DR comparison: the expert panel recommended DR at two envelope widths. We ran only w=0.5, which we chose by hand. DR at w=1.0 (the full envelope) is expected to be much worse, since that envelope is mostly unsurvivable. The point to make is that DR needs a human to pick the envelope.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
