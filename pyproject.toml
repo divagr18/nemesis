@@ -1,0 +1,42 @@
+[project]
+name = "nemesis"
+version = "0.1.0"
+description = "Robots that train against an AI that's trying to break them."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # JAX with CUDA only on Linux (WSL2 / AWS). Windows gets CPU JAX for editing and light tests.
+    # <0.10: brax 0.14.2's PPO calls jax.device_put_replicated, which JAX 0.10 removed.
+    "jax[cuda12]>=0.9,<0.10; sys_platform == 'linux'",
+    "jax>=0.9,<0.10; sys_platform != 'linux'",
+    "mujoco",
+    "mujoco-mjx",
+    "playground",
+    "brax",
+    "evosax==0.3.2",
+    "openai",
+    "pydantic>=2",
+    "python-dotenv",
+    "mediapy",
+    "numpy",
+]
+
+[project.optional-dependencies]
+server = ["fastapi", "uvicorn[standard]"]
+export = ["tensorflow-cpu", "tf2onnx", "onnxruntime"]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nemesis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
