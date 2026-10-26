@@ -34,10 +34,12 @@ MIN_UP_Z = float(np.cos(np.deg2rad(45)))
 class NemesisWrapper(pg_wrapper.Wrapper):
     def __init__(self, env, bank: np.ndarray | None = None, nominal_frac: float = 0.5,
                  uniform: bool = False, lo: np.ndarray | None = None, hi: np.ndarray | None = None,
-                 base_dr: bool = True):
+                 base_dr: bool = True, uniform_frac: float = 0.0):
         """
         bank: [N, D] scenarios to sample from. uniform=True samples U(lo, hi) per episode instead.
         nominal_frac: probability an episode runs with neutral θ.
+        uniform_frac: probability an episode samples U(lo, hi) even in bank mode (the 10% slice
+            of the nominal / counterexample / uniform training mix).
         base_dr: apply Playground-equivalent domain randomization under θ.
         """
         super().__init__(env)
@@ -47,6 +49,7 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         self._lo = jp.asarray(C.LO if lo is None else lo)
         self._hi = jp.asarray(C.HI if hi is None else hi)
         self._base_dr = base_dr
+        self._uniform_frac = uniform_frac
         raw = env.unwrapped
         self._body_geoms = jp.asarray(getattr(raw, "_nemesis_body_geoms", []), jp.int32)
         self._scales = dict(raw._config.reward_config.scales)
@@ -59,13 +62,15 @@ class NemesisWrapper(pg_wrapper.Wrapper):
     # --- θ and DR sampling ---
 
     def sample_theta(self, rng):
-        k1, k2 = jax.random.split(rng)
+        k1, k2, k3 = jax.random.split(rng, 3)
+        uni = jax.random.uniform(k1, (C.D,), minval=self._lo, maxval=self._hi)
         if self._uniform:
-            theta = jax.random.uniform(k1, (C.D,), minval=self._lo, maxval=self._hi)
+            theta = uni
         else:
             theta = self._bank[jax.random.randint(k1, (), 0, self._bank.shape[0])]
-        nominal = jax.random.uniform(k2) < self._nominal_frac
-        return jp.where(nominal, jp.asarray(C.NEUTRAL), theta)
+        r = jax.random.uniform(k2)
+        theta = jp.where(r < self._nominal_frac + self._uniform_frac, uni, theta)
+        return jp.where(r < self._nominal_frac, jp.asarray(C.NEUTRAL), theta)
 
     def sample_dr(self, rng):
         model = self.env.unwrapped._mjx_model
