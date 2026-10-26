@@ -29,15 +29,24 @@ def _task_theta() -> np.ndarray:
     return th
 
 
-def random_thetas(n: int, rng: np.random.Generator) -> np.ndarray:
-    """Uniform over every slot of the envelope, including the command profile."""
-    th = np.repeat(_task_theta()[None], n, axis=0)
-    for s in C.SLOTS:
-        if s.name in TASK_SLOTS:
-            continue
-        sl = C.INDEX[s.name]
-        th[:, sl] = rng.uniform(C.LO[sl], C.HI[sl], size=(n, s.size))
-    return th
+def envelope(width: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+    """(lo, hi) of the envelope scaled toward nominal: width 1 is the full physical envelope,
+    width 0.25 keeps each slot within a quarter of its range around nominal. The command
+    profile always spans its full range (it is the task, not a perturbation)."""
+    lo = C.NEUTRAL + width * (C.LO - C.NEUTRAL)
+    hi = C.NEUTRAL + width * (C.HI - C.NEUTRAL)
+    for name in ("command_a", "command_b", "command_switch"):
+        sl = C.INDEX[name]
+        lo[sl], hi[sl] = C.LO[sl], C.HI[sl]
+    sl = C.INDEX["command_mode"]
+    lo[sl] = hi[sl] = 1.0
+    return lo.astype(np.float32), hi.astype(np.float32)
+
+
+def random_thetas(n: int, rng: np.random.Generator, width: float = 1.0) -> np.ndarray:
+    """Uniform over the (scaled) envelope, including the command profile."""
+    lo, hi = envelope(width)
+    return rng.uniform(lo, hi, size=(n, C.D)).astype(np.float32)
 
 
 class BoxProgram:

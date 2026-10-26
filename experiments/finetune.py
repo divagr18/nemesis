@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from g2_attacks import PROGRAMS  # held-out, hand-written attacks  # noqa: E402
 
 from nemesis.adversary.archive import Archive  # noqa: E402
-from nemesis.adversary.baselines import random_thetas  # noqa: E402
+from nemesis.adversary.baselines import envelope, random_thetas  # noqa: E402
 from nemesis.envs.base import load_env  # noqa: E402
 from nemesis.perturb import canonical as C  # noqa: E402
 from nemesis.perturb.dsl import K_MAX, compile_program  # noqa: E402
@@ -30,7 +30,7 @@ from nemesis.train.ppo import load_params, train  # noqa: E402
 
 
 def held_out_thetas(n_uniform: int = 256, seed: int = 123):
-    """Hand-written attacks at 4 severities + a uniform sample of the envelope."""
+    """Hand-written attacks at 4 severities + uniform samples of the envelope at two widths."""
     hand = []
     for p in PROGRAMS:
         c = compile_program(p)
@@ -38,7 +38,8 @@ def held_out_thetas(n_uniform: int = 256, seed: int = 123):
             u = np.full(K_MAX, lv, np.float32)
             harsh_is_lo = p["name"] in ("ice", "rear slip", "weak rear knees", "reversal on ice")
             hand.append(np.asarray(c.theta_unit(1 - u if harsh_is_lo else u)))
-    return np.stack(hand), random_thetas(n_uniform, np.random.default_rng(seed))
+    rng = np.random.default_rng(seed)
+    return np.stack(hand), random_thetas(n_uniform, rng, width=0.25), random_thetas(n_uniform, rng, width=0.5)
 
 
 def history_failures(archive, hunt_dir: Path, per_program: int, seed: int = 0) -> np.ndarray:
@@ -59,12 +60,21 @@ def history_failures(archive, hunt_dir: Path, per_program: int, seed: int = 0) -
 
 
 def summarize(res) -> dict:
-    fell = res["fell"]
-    per_scenario = fell.mean(1)
+    """Fall rate, success, and CVaR@10% of the robustness margin (mean of the worst 10% of
+    scenarios; continuous, so it does not saturate when the worst scenarios all fall)."""
+    per_scenario = res["robustness"].mean(1)
     k = max(1, int(np.ceil(0.1 * len(per_scenario))))
-    return {"fall_rate": float(fell.mean()), "success": float(res["success"].mean()),
-            "cvar10_fall": float(np.sort(per_scenario)[-k:].mean()),
+    return {"fall_rate": float(res["fell"].mean()), "success": float(res["success"].mean()),
+            "cvar10_robustness": float(np.sort(per_scenario)[:k].mean()),
             "progress_m": float(res["progress"].mean())}
+
+
+def forward_nominal() -> np.ndarray:
+    """Nominal physics with a fixed 1 m/s forward command (so progress is meaningful)."""
+    th = C.neutral()
+    th[C.INDEX["command_mode"]] = 1.0
+    th[C.INDEX["command_a"]] = th[C.INDEX["command_b"]] = [1.0, 0.0, 0.0]
+    return th
 
 
 def main():
@@ -76,6 +86,8 @@ def main():
     ap.add_argument("--evals", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--per-program", type=int, default=32, help="history failures per broken program")
+    ap.add_argument("--uniform-width", type=float, default=0.25, help="envelope width of the 10% uniform slice")
+    ap.add_argument("--eval-only", action="store_true", help="skip training; re-run the comparison")
     args = ap.parse_args()
 
     archive = Archive(args.atlas)
@@ -90,16 +102,18 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     np.save(out / "bank.npy", bank)
 
-    env = NemesisWrapper(load_env()[0], bank=bank, nominal_frac=0.5, uniform_frac=0.1)
-    eval_env = NemesisWrapper(load_env()[0], nominal_frac=1.0)
-    train(run_dir=out, num_timesteps=args.steps, num_evals=args.evals, seed=args.seed,
-          restore_params=load_params(args.base), env=env, eval_env=eval_env)
+    if not args.eval_only:
+        lo, hi = envelope(args.uniform_width)
+        env = NemesisWrapper(load_env()[0], bank=bank, nominal_frac=0.5, uniform_frac=0.1, lo=lo, hi=hi)
+        eval_env = NemesisWrapper(load_env()[0], nominal_frac=1.0)
+        train(run_dir=out, num_timesteps=args.steps, num_evals=args.evals, seed=args.seed,
+              restore_params=load_params(args.base), env=env, eval_env=eval_env)
 
     # Before/after on identical scenarios and seeds.
     ev = Evaluator(NemesisWrapper(load_env()[0], base_dr=False), args.base, horizon=250)
-    hand, uniform = held_out_thetas()
-    suites = {"nominal": C.neutral()[None], "train_bank": bank, "heldout_hand": hand,
-              "heldout_uniform": uniform}
+    hand, uni25, uni50 = held_out_thetas()
+    suites = {"nominal": forward_nominal()[None], "train_bank": bank, "heldout_hand": hand,
+              "heldout_env25": uni25, "heldout_env50": uni50}
     report = {}
     for label, run in (("before", args.base), ("after", str(out))):
         params = load_params(run)
@@ -108,7 +122,7 @@ def main():
     for name in suites:
         b, a = report["before"][name], report["after"][name]
         print(f"{name:16s} fall {b['fall_rate']:.3f} -> {a['fall_rate']:.3f}   "
-              f"CVaR10 {b['cvar10_fall']:.3f} -> {a['cvar10_fall']:.3f}   "
+              f"CVaR10(robust) {b['cvar10_robustness']:+.3f} -> {a['cvar10_robustness']:+.3f}   "
               f"progress {b['progress_m']:.1f} -> {a['progress_m']:.1f} m")
 
 
