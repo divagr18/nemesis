@@ -45,7 +45,7 @@ class Evaluator:
         yaw0 = 2 * jp.arctan2(q0[6], q0[3])
 
         def body(carry, t):
-            s, alive, margin, err_sum, n_alive, t_fall = carry
+            s, alive, margin, err_sum, n_alive, t_fall, fall_g = carry
             action, _ = policy(s.obs, jax.random.fold_in(rng, t))
             cmd = s.info["command"]
             s = env.step(s, action)
@@ -59,12 +59,17 @@ class Evaluator:
             err_sum = err_sum + jp.where(alive, err, 0.0)
             n_alive = n_alive + alive
             t_fall = jp.where(alive & fell, t, t_fall)
+            # Fall signature: gravity direction in the trunk frame at the moment of the fall
+            # (x>0: nose down, x<0: nose up, y>0: rolled right, y<0: rolled left).
+            g = s.data.xmat[A.TRUNK].T @ jp.array([0.0, 0.0, -1.0])
+            fall_g = jp.where(alive & fell, g, fall_g)
             alive = alive & ~fell
             out = s.data.qpos if record else None
-            return (s, alive, margin, err_sum, n_alive, t_fall), out
+            return (s, alive, margin, err_sum, n_alive, t_fall, fall_g), out
 
-        init = (s, jp.ones((), bool), jp.full((), 1.0), jp.zeros(()), jp.zeros(()), jp.full((), T))
-        (s, alive, margin, err_sum, n_alive, t_fall), qpos = jax.lax.scan(body, init, jp.arange(T))
+        init = (s, jp.ones((), bool), jp.full((), 1.0), jp.zeros(()), jp.zeros(()), jp.full((), T),
+                jp.zeros(3))
+        (s, alive, margin, err_sum, n_alive, t_fall, fall_g), qpos = jax.lax.scan(body, init, jp.arange(T))
 
         track_err = err_sum / jp.maximum(n_alive, 1.0)
         q1 = s.data.qpos
@@ -78,6 +83,7 @@ class Evaluator:
             "progress": progress,
             "robustness": robustness,
             "success": alive & (track_err < TRACK_TOL),
+            "fall_gravity": fall_g,
         }
         if record:
             out["qpos"] = qpos

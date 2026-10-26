@@ -14,6 +14,7 @@ import numpy as np
 
 from nemesis.adversary import cmaes
 from nemesis.adversary.archive import Archive
+from nemesis.adversary.observe import observe_failure
 from nemesis.adversary.proposer import propose
 from nemesis.envs.base import load_env
 from nemesis.perturb import canonical as C
@@ -33,6 +34,7 @@ def main():
     ap.add_argument("--gens", type=int, default=12)
     ap.add_argument("--seeds", type=int, default=8)
     ap.add_argument("--horizon", type=int, default=250)
+    ap.add_argument("--no-observe", action="store_true", help="skip Muse Spark failure observations")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -46,9 +48,12 @@ def main():
     print(f"nominal: fall rate {nominal['fell'].mean():.2f}, success {nominal['success'].mean():.2f}")
 
     total_steps = 0
+    observations = [f"{r['name']}: {r['spark']['mode']}: {r['spark']['what_happened']} "
+                    f"Likely cause: {r['spark']['likely_cause']}" for r in archive.failures() if r.get("spark")]
     for rnd in range(args.rounds):
         t0 = time.time()
-        programs = propose(n=args.per_round, history=archive.history_for_prompt(), seed=rnd)
+        programs = propose(n=args.per_round, history=archive.history_for_prompt(),
+                           observations=observations, seed=rnd)
         print(f"\n=== round {rnd}: {len(programs)} programs from Wonder ({time.time() - t0:.0f}s)")
         compiled = [compile_program(p) for p in programs]
         t1 = time.time()
@@ -68,7 +73,14 @@ def main():
             fail_rate = float(check["fell"][j].mean())
             found = fail_rate >= cmaes.FAIL_RATE
             total_steps += res.env_steps + shrink_steps + 32 * args.horizon
-            rec = archive.add(
+            spark = None
+            if found and not args.no_observe:
+                clip = out / "clips" / f"r{rnd}_{len(archive.records):03d}.mp4"
+                spark = observe_failure(ev, params, theta, clip)
+                observations.append(f"{p.name}: {spark['mode']}: {spark['what_happened']} "
+                                    f"Likely cause: {spark['likely_cause']}")
+                print(f"      Spark: {spark['mode']}: {spark['what_happened']}")
+            rec = archive.add(spark=spark,
                 round=rnd, name=p.name, hypothesis=p.hypothesis, program=p.model_dump(),
                 found=found, fail_rate=fail_rate, cost=float(cmaes.plausibility_cost(theta[None])[0]),
                 time_to_fall=float(check["time_to_fall"][j].mean()), theta=theta,
