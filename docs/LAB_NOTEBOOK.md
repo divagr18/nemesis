@@ -146,6 +146,25 @@ Before running the main experiment, an Opus subagent audited every module agains
 
 **Implication:** the `ft_r1` and `ft_r2` numbers above were produced with these bugs present. They are directionally useful but are superseded by the re-validation run (`hunt_v3`, `ft_v3`).
 
+## Oct 27: re-validation on the fixed pipeline (`hunt_v3`, `ft_v3`)
+
+- **Hunt vs `baseline_v2`:** 10 of 16 hypotheses broke the robot (previously 8 of 24), with more diverse modes now that slopes and pushes follow the start heading:
+  - rear payload uphill: 72% (testable now that uphill is uphill)
+  - encoder offset + latency: 97%
+  - stiff joints + latency + raised payload: 94%
+  - resonant double push during a sideways gait: 75%
+
+  Cost: 8.7M env steps.
+- **Curation:** 330 raw counterexamples → 238 kept, 92 quarantined (≥95% falls under the current policy). Mean fall rate of the raw bank was 85%.
+- **Fine-tune `ft_v3`** (lr 1e-4, pinned θ normalizer, capped resets, fall penalty 1.0, 50.5M actual steps, 7 min). The nominal eval reward dipped only to 27.2, then ended at **28.6** (pre-fix round 1 ended at 25.4).
+- **Before → after** (16 seeds, same scenarios):
+  - **own bank: 80.3% → 15.2%**
+  - **held-out hand-written: 27.5% → 13.5% (−51%)**
+  - **held-out envelope w=0.5: 57.9% → 38.4% (−34%)**
+  - w=0.25: 0.5% → 0.5%, CVaR margin +0.18 → +0.24
+  - **nominal: 0% → 0% falls, progress 4.5 → 4.6 m**
+- **Takeaway:** the audit roughly doubled to tripled the held-out gains of a round at the same compute, and **removed the robustness-vs-speed tradeoff**. The policy is more robust *and* no slower.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
