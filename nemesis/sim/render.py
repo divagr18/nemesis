@@ -44,8 +44,12 @@ if __name__ == "__main__":
     ap.add_argument("--seconds", type=float, default=10)
     args = ap.parse_args()
 
-    env_name = json.loads((Path(args.run) / "config.json").read_text())["env_name"]
-    env, _ = load_env(env_name)
+    from nemesis.perturb.wrapper import NemesisWrapper
+
+    cfg = json.loads((Path(args.run) / "config.json").read_text())
+    env, _ = load_env(cfg["env_name"], body_collisions=cfg.get("nemesis", False))
+    if cfg.get("nemesis", False):
+        env = NemesisWrapper(env, nominal_frac=1.0, base_dr=False)
     policy = make_policy(args.run, env, args.step)
     traj = rollout(env, policy, steps=int(args.seconds / env.dt), command=args.command)
     disp = body_frame_displacement(traj)

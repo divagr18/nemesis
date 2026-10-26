@@ -45,16 +45,29 @@ def train(
     restore_params=None,
     env=None,
     eval_env=None,
+    nemesis: bool = True,
 ):
-    """Trains a policy. Pass `env`/`eval_env` to train on a wrapped env (e.g. NemesisWrapper)."""
+    """Trains a policy.
+
+    nemesis=True trains through NemesisWrapper (body collisions, strict falls, unclipped reward,
+    obs history, theta-aware critic, per-episode DR) on nominal scenarios unless `env` is given.
+    Pass `env`/`eval_env` (already NemesisWrapper-wrapped) to train on a scenario bank.
+    """
+    from nemesis.perturb.wrapper import NemesisWrapper
+
     run_dir = Path(run_dir)
     (run_dir / "ckpts").mkdir(parents=True, exist_ok=True)
-    env = env or load_env(env_name)[0]
-    eval_env = eval_env or load_env(env_name)[0]
+    if nemesis:
+        env = env or NemesisWrapper(load_env(env_name)[0], nominal_frac=1.0)
+        eval_env = eval_env or NemesisWrapper(load_env(env_name)[0], nominal_frac=1.0)
+        domain_randomization = False  # applied per episode inside NemesisWrapper
+    else:
+        env = env or load_env(env_name, body_collisions=False)[0]
+        eval_env = eval_env or load_env(env_name, body_collisions=False)[0]
     params = ppo_config(env_name, num_timesteps, num_evals)
 
     (run_dir / "config.json").write_text(json.dumps({
-        "env_name": env_name, "impl": config.SIM_IMPL, "seed": seed,
+        "env_name": env_name, "impl": config.SIM_IMPL, "seed": seed, "nemesis": nemesis,
         "ppo": params.to_dict(),
     }, indent=1))
 
@@ -122,5 +135,6 @@ if __name__ == "__main__":
     ap.add_argument("--steps", type=int, default=None, help="default: Playground's tuned budget")
     ap.add_argument("--evals", type=int, default=None, help="fewer evals = smaller minimum budget")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--stock", action="store_true", help="Playground's stock env (no NemesisWrapper)")
     args = ap.parse_args()
-    train(args.env, args.out, args.steps, args.evals, args.seed)
+    train(args.env, args.out, args.steps, args.evals, args.seed, nemesis=not args.stock)

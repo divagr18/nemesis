@@ -41,6 +41,33 @@ The LLM emits **JSON only**, validated by pydantic, and that JSON is never exec'
   - Policy: Playground has a Brax→ONNX notebook and ships a pretrained `go1_policy.onnx`.
 - **Glimmer:** `meta-models/Muse-Glimmer-30B`, BF16, needs an 80 GB GPU. Use vLLM structured outputs.
 
+## Changes from the expert panel and literature review (Oct 26)
+Sources: [docs/literature_review.md](docs/literature_review.md) and an expert-elicitation pass covering a locomotion practitioner, a UED researcher, an MJX engineer, an AV-falsification expert and a hackathon judge.
+
+**Done in P2:**
+- Body–floor collisions plus a strict fall definition.
+- Unclipped reward.
+- 3-frame obs history and θ in the critic.
+- DR applied inside the wrapper.
+- Realistic ranges.
+- Structured primitives: command profile with reversal, spatial ice patch, encoder offsets, IMU bias, linvel bias.
+- Payload inertia; slope-consistent gravity readings.
+- **The baseline is retrained under all of this (`runs/baseline_v2`).**
+
+**Adopted for P3 onward:**
+1. **Objective = most plausible failure.** Minimize plausibility cost subject to failure, not raw failure, which finds unsolvable worlds. Score failure with an STL-style robustness margin over height/tilt/tracking. Shrink every counterexample toward nominal (delta debugging).
+2. **Feasibility gate:** a counterexample enters the bank only if it is solvable, i.e. a short fine-tune on it reaches p ≥ 0.3. Otherwise label it "infeasible" and show it in the atlas but don't train on it.
+3. **Bank sampling by learnability p(1−p)** (No Regrets). Retire scenarios above 95%, quarantine those below 5%. Mix 50% nominal / 40% counterexamples / 10% uniform. Run a **cumulative regression suite** every round and report forgetting. Roll back if nominal success drops more than 3 points.
+4. **Isolate the LLM's contribution.** Add controls: CMA-ES over the **full DSL union**, and **shuffled-LLM** (same number of primitives, chosen at random). Headline metric: a **discovery curve**, i.e. distinct failure clusters (behavioral signatures) per env-step, at equal plausibility.
+5. **Spark → Wonder feedback loop.** Spark's failure descriptions go into Wonder's next proposals. Ablate with vs. without Spark feedback (new clusters found). Report Spark–human agreement on about 40 labelled clips.
+6. **Search budget:** 250-step attack episodes, population 16–32 × 8 common-random-number seeds, early stop. Report both training-steps-matched and total-steps-matched comparisons.
+7. **Cluster on behavioral signatures:** first slipping foot, fall axis, time to fall, last-0.5 s contact pattern. Spark only names the clusters.
+8. **Strong DR:** two envelope widths, report the better one, fine-tuned from the same baseline. Use a **fresh, never-trained adversary** in eval. Present the human attacks as in-envelope (they compile to the same DSL).
+9. **Render video from logged batched trajectories**, not re-simulation, because chaotic contact dynamics aren't bit-exact across batch sizes. "Reproducible" means fail rate within its CI over N seeds.
+10. **Demo:** the skill compiler shrinks to an ≤8 s beat (it's Eureka-like and splits the story). Headline the discovery curve, with CVaR@10% as the robustness number. Run the full pipeline at 1 seed on D4 and lock `analyze.py` before the D6 sweep.
+
+**Positioning:** to our knowledge, no prior work has an LLM write adversarial physics programs for legged robots. The closest are Q-DEG (QD red-teaming of manipulation VLAs, no LLM) and ChatScene (LLM → driving scenario DSL → fine-tune). Cite both.
+
 ## Repo layout (`D:\muse`)
 ```
 nemesis/config.py   nemesis/llm/{client.py,prompts/}   nemesis/envs/{base,skill_env}.py
