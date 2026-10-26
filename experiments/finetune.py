@@ -41,6 +41,23 @@ def held_out_thetas(n_uniform: int = 256, seed: int = 123):
     return np.stack(hand), random_thetas(n_uniform, np.random.default_rng(seed))
 
 
+def history_failures(archive, hunt_dir: Path, per_program: int, seed: int = 0) -> np.ndarray:
+    """Failing candidates (>= SEARCH_FAIL during search) from the CMA histories of programs that
+    broke the robot: a diverse cloud around each failure mode, not just its minimal version."""
+    import pickle
+
+    from nemesis.adversary.cmaes import SEARCH_FAIL
+
+    rng = np.random.default_rng(seed)
+    out = []
+    for rec in archive.failures():
+        hist = pickle.load(open(hunt_dir / f"history_{rec['id']}.pkl", "rb"))
+        cands = np.concatenate([g["thetas"][g["fail_rate"] >= SEARCH_FAIL] for g in hist])
+        if len(cands):
+            out.append(cands[rng.permutation(len(cands))[:per_program]])
+    return np.concatenate(out) if out else np.zeros((0, C.D), np.float32)
+
+
 def summarize(res) -> dict:
     fell = res["fell"]
     per_scenario = fell.mean(1)
@@ -58,12 +75,17 @@ def main():
     ap.add_argument("--steps", type=int, default=50_000_000)
     ap.add_argument("--evals", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--per-program", type=int, default=32, help="history failures per broken program")
     args = ap.parse_args()
 
-    bank = Archive(args.atlas).thetas(failures_only=True)
+    archive = Archive(args.atlas)
+    bank = archive.thetas(failures_only=True)
+    if args.per_program:
+        bank = np.concatenate([bank, history_failures(archive, Path(args.atlas).parent, args.per_program)])
     if len(bank) == 0:
         sys.exit("no counterexamples in the atlas")
-    print(f"training bank: {len(bank)} counterexamples")
+    print(f"training bank: {len(bank)} counterexamples "
+          f"({len(archive.failures())} shrunk failures + search-history failures)")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     np.save(out / "bank.npy", bank)
