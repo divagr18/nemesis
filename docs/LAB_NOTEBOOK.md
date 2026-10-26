@@ -203,6 +203,30 @@ Before running the main experiment, an Opus subagent audited every module agains
   - Testing waits for an L4 to free up.
 - **Visible perturbations** (`nemesis/sim/overlays.py`): ice patch, slippery-foot markers, payload box, push arrow, weak-motor leg tint. Verified on a rendered clip.
 
+## Oct 27: partial main-experiment results (7 of 15 runs): DR is a very strong baseline
+
+Evaluated on the PC's 4060 with 8 seeds per scenario. Policies: baseline, dr s1/s2, nemesis s0/s2, random s1/s2, shuffled s1.
+
+- **Gauntlet falls** (hand-written 32 / realistic 20 / Sobol 256 at w=0.5, which is DR's training distribution):
+
+  | Policy | hand-written | realistic | Sobol |
+  |---|---|---|---|
+  | baseline | 26.2% | 3.1% | 61.1% |
+  | dr | 8.2 / 7.4% | 1.3 / 1.3% | 3.5 / 3.1% |
+  | nemesis | 7.8 / 12.1% | 0 / 0% | 36.5 / 25.0% |
+  | random | 9.8 / 11.7% | 1.3 / 1.3% | 31.8 / 37.0% |
+  | shuffled | 11.3% | 0% | 20.8% |
+
+  - CVaR10 on hand-written: nemesis_s0 −0.45 (best), dr −0.47 / −0.51.
+  - Nominal progress about 4.5 m for every policy: nobody went timid.
+- **Cross-play** (fall rate on each arm's plausible and feasible failures):
+  - DR policies: **0%** on nemesis failures, 18–19% on shuffled, 85–87% on random.
+  - Nemesis policies: 4–7% on their own arm's failures, 31–32% on shuffled.
+  - Random-trained policies: best on random's failures (56%), worst on the others.
+- **Honest reading:** at this budget, DR over a well-chosen envelope (w=0.5), given the adversary's attack budget as extra training steps, **ties or beats every adversarial arm**. Nemesis is marginally better on realistic and best-seed CVaR, which is within noise at n=2.
+- **Flaw in the pre-registered discovery metric:** random search "wins" with 17.5 plausible+feasible modes vs nemesis 6. The plausibility cost is RMS over *deviating* slots, so a scenario perturbing ~60 slots moderately scores cost ≈ 0.45 and passes the ≤ 0.5 filter. Plan: report the pre-registered metric as-is *and* a corrected one (total deviation / number of active primitive groups), clearly labeled post-hoc.
+- **Hypothesis for the pivot:** DR is the industry default. The more useful question may be whether Nemesis finds and fixes failures that a DR-trained policy *still* has. Testing with a Nemesis hunt against `dr_s1`.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
