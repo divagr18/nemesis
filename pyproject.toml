@@ -15,6 +15,7 @@ dependencies = [
     "brax",
     "evosax==0.3.2",
     "openai",
+    "httpx",
     "pydantic>=2",
     "python-dotenv",
     "mediapy",

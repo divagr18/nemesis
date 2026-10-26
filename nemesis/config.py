@@ -16,7 +16,8 @@ TRANSCRIBE = "muse-voice-transcribe-1.0"
 SAM = "sam-3.1"
 
 BASE_ENV = "Go1JoystickFlatTerrain"
-SIM_IMPL = "jax"  # Playground's Go1 default is "warp"; pinned until benchmarked (PLAN 1.2).
+# Playground's Go1 default is "warp"; pinned to "jax" until benchmarked (PLAN 1.2).
+SIM_IMPL = os.environ.get("NEMESIS_IMPL", "jax")
 THETA_LAYOUT_VERSION = 1
 
 
