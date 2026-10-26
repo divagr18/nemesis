@@ -83,6 +83,20 @@ Times are IST.
 - **CVaR@10% on binary falls saturates at 1.0.** Fix: compute it on the continuous robustness margin.
 - Nominal "progress" needs a fixed command. Neutral θ lets the joystick sample random commands.
 
+## Oct 27: round-1 re-score and hunt round 2 (`hunt_r2`, vs `ft_r1`)
+
+- **Re-scored round 1** with the corrected suites, before → after (16 seeds):
+  - nominal at 1 m/s: 0% → 0% falls, progress 4.5 → 4.3 m (4% more cautious)
+  - training counterexamples: 79.6% → 39.6%
+  - held-out hand-written: 22.7% → 18.8%
+  - **held-out envelope w=0.5: 60.4% → 49.2%** (−19% relative, on a DR-style distribution never trained on)
+  - envelope w=0.25: 0.6% → 0.5%
+- **Hunt round 2 against `ft_r1`, with Spark watching every failure:**
+  - Wonder's original 8 hypotheses (cached replay): 4 → **2** still break the policy. Fixed: weak front calves + payload downhill (56% → 0%) and latency at 20 ms (53% → below the bar; needs about 40 ms now). Lateral push in a yaw turn: 22% → 9%.
+  - **New, Spark-informed round: 5 of 8 hypotheses broke the policy**, vs 2–4 of 8 without observations. Hits: front-feet grip loss braking downhill 91%, ice entry during a lateral step 88%, both rear slip + weak front calves 78%, forward push at ice entry 72%, linear-velocity bias + over-acceleration downhill 66%. **Anecdotal (one round, confounded with history); needs the planned ablation.**
+  - Total: 7 failures from 16 programs, 8.1M env steps.
+- **Spark descriptions are specific and match the video.** For clip `r1_008` Spark said "both front legs slipped forward and buckled, pitching the nose down until the body flipped", and the frames show exactly that. Spark–human agreement: **1/1 checked** (target about 40).
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
