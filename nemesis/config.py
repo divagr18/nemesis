@@ -21,6 +21,10 @@ SPARK_CHEAP = "muse-spark-1.3-contributor"
 SPARK_AUDIO = "muse-spark-1.2"
 TRANSCRIBE = "muse-voice-transcribe-1.0"
 SAM = "sam-3.1"
+# Muse Glimmer (open weights, Apache 2.0) served on our own GPU by llama.cpp:
+#   meta-models/Muse-Glimmer-30B-GGUF:Q4_K_M (16.8 GB, fits a 24 GB L4)
+GLIMMER = "glimmer"
+GLIMMER_URL = os.environ.get("NEMESIS_GLIMMER_URL", "http://localhost:8080/v1")
 
 BASE_ENV = "Go1JoystickFlatTerrain"
 # Playground's Go1 default is "warp"; pinned to "jax" until benchmarked (PLAN 1.2).

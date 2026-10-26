@@ -39,6 +39,34 @@ def _cache_key(payload: dict) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:32]
 
 
+_glimmer: OpenAI | None = None
+
+
+def glimmer_client() -> OpenAI:
+    global _glimmer
+    if _glimmer is None:
+        _glimmer = OpenAI(base_url=config.GLIMMER_URL, api_key="local", max_retries=2, timeout=900)
+    return _glimmer
+
+
+def _glimmer_chat(req: dict) -> tuple[str, dict | None]:
+    """Muse Glimmer through llama.cpp's OpenAI-compatible chat API (text only). Reasoning effort
+    goes in the system prompt, as the model card specifies; sampling follows the card."""
+    effort = {"minimal": "low", "low": "low", "medium": "medium", "high": "high", "max": "xhigh"}
+    system = f"Reasoning strength: {effort.get(req.get('reasoning', {}).get('effort', 'high'), 'high')}"
+    if req.get("instructions"):
+        system += "\n\n" + req["instructions"]
+    text = "\n\n".join(c["text"] for c in req["input"][0]["content"] if c["type"] == "input_text")
+    kw = {}
+    if "text" in req:
+        kw["response_format"] = {"type": "json_schema", "json_schema": {
+            "name": req["text"]["format"]["name"], "schema": req["text"]["format"]["schema"]}}
+    resp = glimmer_client().chat.completions.create(
+        model="glimmer", messages=[{"role": "system", "content": system}, {"role": "user", "content": text}],
+        temperature=1.0, top_p=0.95, extra_body={"top_k": 64}, max_tokens=16384, **kw)
+    return resp.choices[0].message.content, resp.usage.model_dump() if resp.usage else None
+
+
 def respond(
     prompt: str | list,
     model: str = config.SPARK,
@@ -68,10 +96,12 @@ def respond(
         out = json.loads(path.read_text())
     else:
         t0 = time.time()
-        resp = client().responses.create(**req)
-        out = {"text": resp.output_text,
-               "usage": resp.usage.model_dump() if resp.usage else None,
-               "latency_s": round(time.time() - t0, 2)}
+        if model == config.GLIMMER:
+            text, usage = _glimmer_chat(req)
+        else:
+            resp = client().responses.create(**req)
+            text, usage = resp.output_text, resp.usage.model_dump() if resp.usage else None
+        out = {"text": text, "usage": usage, "latency_s": round(time.time() - t0, 2)}
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(out))
         _log({"ts": time.time(), "tag": tag, "model": model, "key": key,

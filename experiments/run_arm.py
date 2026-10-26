@@ -36,6 +36,7 @@ from nemesis.adversary.baselines import BoxProgram, envelope, random_program, ra
 from nemesis.adversary.modes import signature  # noqa: E402
 from nemesis.adversary.observe import observe_failure  # noqa: E402
 from nemesis.adversary.proposer import propose  # noqa: E402
+from nemesis import config  # noqa: E402
 from nemesis.envs.base import load_env  # noqa: E402
 from nemesis.perturb import canonical as C  # noqa: E402
 from nemesis.perturb.dsl import compile_program  # noqa: E402
@@ -113,7 +114,8 @@ def attack(arm, ev, params, rnd, args, archive, ledger, out, observations):
         extra = {}
         if arm == "nemesis":
             programs = propose(n=args.per_round, history=archive.history_for_prompt(),
-                               observations=observations, seed=args.seed * 100 + rnd * 10 + batch)
+                               observations=observations, seed=args.seed * 100 + rnd * 10 + batch,
+                               model=args.proposer)
             for p in programs:
                 extra[p.name] = {"hypothesis": p.hypothesis}
             compiled = [compile_program(p) for p in programs]
@@ -176,6 +178,8 @@ def main():
     ap.add_argument("--horizon", type=int, default=250)
     ap.add_argument("--no-observe", action="store_true")
     ap.add_argument("--lr", type=float, default=1e-4, help="fine-tuning learning rate (resume)")
+    ap.add_argument("--proposer", default=config.WONDER,
+                    help="nemesis arm's proposer: muse-wonder-1.0 (API) or glimmer (open weights, llama.cpp)")
     args = ap.parse_args()
 
     out = Path(args.out)
