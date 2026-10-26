@@ -5,7 +5,7 @@ All project code was written during the Meta Global AI Developer Hackathon build
 | Gate | Passed | Evidence |
 |---|---|---|
 | G0 Setup | Oct 26 | WSL2 on the RTX 3050 and AWS g6e.4xlarge (L40S): both on JAX 0.12.0.1 with CUDA, `pytest` 3/3 passing on each. Repo not yet committed (first commit Oct 27). |
-| G1 Sim foundation | | |
+| G1 Sim foundation | Oct 26 | Stock baseline: reward 28.5 at 200M steps in 11.5 min on an L40S. `baseline_v2` (NemesisWrapper: body collisions, strict falls, unclipped reward, obs history, θ-aware critic): reward 28.2 in 15 min. Checkpoint at every eval, render from checkpoint, and Wonder (JSON), Spark (video) and Voice Transcribe all verified from our client. Backend: JAX at ~530k steps/s vs MJX-Warp at ~33k steps/s, so we stay on JAX. |
 | G2 Perturbation engine | | |
 | G3 Adversary | | |
 | G4 Counterexample training | | |
