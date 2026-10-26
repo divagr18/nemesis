@@ -90,14 +90,19 @@ def main():
     ap.add_argument("--eval-only", action="store_true", help="skip training; re-run the comparison")
     args = ap.parse_args()
 
-    archive = Archive(args.atlas)
-    bank = archive.thetas(failures_only=True)
-    if args.per_program:
-        bank = np.concatenate([bank, history_failures(archive, Path(args.atlas).parent, args.per_program)])
+    # Cumulative bank across every given atlas (comma-separated), so earlier fixes are replayed.
+    parts, n_shrunk = [], 0
+    for path in args.atlas.split(","):
+        archive = Archive(path)
+        parts.append(archive.thetas(failures_only=True))
+        n_shrunk += len(archive.failures())
+        if args.per_program:
+            parts.append(history_failures(archive, Path(path).parent, args.per_program))
+    bank = np.concatenate(parts) if parts else np.zeros((0, C.D), np.float32)
     if len(bank) == 0:
         sys.exit("no counterexamples in the atlas")
     print(f"training bank: {len(bank)} counterexamples "
-          f"({len(archive.failures())} shrunk failures + search-history failures)")
+          f"({n_shrunk} shrunk failures + search-history failures)")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     np.save(out / "bank.npy", bank)
