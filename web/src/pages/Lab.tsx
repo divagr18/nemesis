@@ -2,10 +2,11 @@ import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Composer from "../components/Composer";
+import Steps from "../components/Steps";
 import Envelope from "../components/Envelope";
 import PatchPanel from "../components/PatchPanel";
 import Replay from "../components/Replay";
-import { api, pct, post, upload } from "../lib/api";
+import { api, pct, post, runJob, upload } from "../lib/api";
 import { useVersions } from "../lib/live";
 
 const EXAMPLES = [
@@ -53,11 +54,14 @@ export default function Lab() {
     api("/api/showcase").then((s) => setShowcase(s?.trajs ? s : null)).catch(() => {});
   }, [tick]);
 
-  const run = async (label: string, req: () => Promise<Attack>) => {
-    setBusy(label); setError(""); setPatchJob(null); setAfter(null); setAttempts([]);
-    try { setResult(await req()); setTick((t) => t + 1); }
-    catch (e: any) { setError(e.message); }
-    setBusy("");
+  const [steps, setSteps] = useState<string[]>([]);
+  const run = async (first: string, start: () => Promise<{ job: string }>) => {
+    setBusy(first); setSteps([first]); setError(""); setPatchJob(null); setAfter(null); setAttempts([]);
+    try {
+      setResult(await runJob(start(), (st) => setSteps((xs) => (xs.at(-1) === st ? xs : [...xs, st]))));
+      setTick((t) => t + 1);
+    } catch (e: any) { setError(e.message); }
+    setBusy(""); setSteps([]);
   };
 
   const showing = attempts.length ? attempts[attempt] : null;
@@ -88,9 +92,9 @@ export default function Lab() {
           </div>
           <div className="mt-8">
             <Composer busy={!!busy} examples={["Describe an attack…"]} prefill={prefill}
-              onText={(text) => run("Muse Wonder is turning that into physics…", () => post("/api/attack", { text }))}
-              onVoice={(wav) => run("Listening, then simulating…", () => upload("/api/attack_voice", "audio", wav, "attack.wav"))}
-              onFile={(f) => run("Muse Spark is reading your place…", () => upload("/api/world", "media", f, f.name))} />
+              onText={(text) => run("Sending your attack", () => post("/api/attack?stream=1", { text }))}
+              onVoice={(wav) => run("Uploading your voice", () => upload("/api/attack_voice?stream=1", "audio", wav, "attack.wav"))}
+              onFile={(f) => run("Uploading your photo", () => upload("/api/world?stream=1", "media", f, f.name))} />
           </div>
           {error && <p className="mt-3 text-sm text-ember">{error}</p>}
           {result && !busy && <Verdict r={result} after={after} onPatch={async () => {
@@ -126,9 +130,9 @@ export default function Lab() {
           )}
           {busy && (
             <div className="absolute inset-0 grid place-items-center bg-black/60 backdrop-blur-[2px]">
-              <div className="w-56">
-                <p className="text-center text-sm text-mute">{busy}</p>
-                <div className="mt-3 h-px overflow-hidden bg-line"><div className="sweep h-full w-1/3 bg-ember" /></div>
+              <div className="w-72">
+                <Steps steps={steps} />
+                <div className="mt-4 h-px overflow-hidden bg-line"><div className="sweep h-full w-1/3 bg-ember" /></div>
               </div>
             </div>
           )}

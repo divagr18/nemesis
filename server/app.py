@@ -80,6 +80,25 @@ _hits: dict[str, list[float]] = defaultdict(list)
 _sim = {}
 
 
+def reporter(job):
+    """A step reporter usable from the event loop or worker threads: report("Simulating…")."""
+    if job is None:
+        return lambda *a, **k: None
+    loop = asyncio.get_running_loop()
+    return lambda step, **kw: asyncio.run_coroutine_threadsafe(job.emit("step", step=step, **kw), loop)
+
+
+def stream(kind: str, make):
+    """Run `make(report)` as a background job; the page follows its steps, the result is the done event."""
+    job = jobs.new(kind)
+
+    async def go():
+        result = await make(reporter(job))
+        await job.finish("done", {"result": result})
+    jobs.spawn(job, go())
+    return {"job": job.id}
+
+
 def sim():
     """Evaluator plus params for the original policy (v1) and the live version."""
     if not _sim:
@@ -125,7 +144,8 @@ def translate(text: str, limit: int = 500) -> Program:
     return Program.model_validate(data)
 
 
-def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, object], contrast: bool = False) -> dict:
+def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, object], contrast: bool = False,
+             report=lambda *a, **k: None) -> dict:
     """Runs one θ against two policies and renders them side by side on a shared seed (the first
     seed where the right-hand policy falls, so a break is shown when there is one)."""
     from nemesis.sim.overlays import overlays
@@ -134,12 +154,16 @@ def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, obje
     s = sim()
     ev = s["ev"]
     key = int(time.time()) % 10_000
-    res = {name: ev(params, theta[None], seeds=SEEDS, key=key) for name, params in (left, right)}
+    res = {}
+    for name, params in (left, right):
+        report(f"Simulating {'the original robot' if name in ('v1', 'original') else name} · {SEEDS} runs")
+        res[name] = ev(params, theta[None], seeds=SEEDS, key=key)
     fell_r = res[right[0]]["fell"][0]
     fell_l = res[left[0]]["fell"][0]
     seed = int(np.flatnonzero(fell_r)[0]) if fell_r.any() else (int(np.flatnonzero(fell_l)[0]) if fell_l.any() else 0)
     if contrast and (fell_l & ~fell_r).any():  # showcase: a seed where the left falls and the right holds
         seed = int(np.flatnonzero(fell_l & ~fell_r)[0])
+    report("Recording both robots on the same seed")
     recs = [ev(params, theta[None], seeds=np.array([seed]), key=key, record=True) for _, params in (left, right)]
     # End ~1.5 s after the later fall (no seconds of flailing on the floor); full length if either held.
     falls = [r["time_to_fall"][0, 0] / ev.env.dt for r in recs if r["fell"][0, 0]]
@@ -150,6 +174,7 @@ def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, obje
     clip_id = uuid.uuid4().hex[:10]
     CLIPS.mkdir(parents=True, exist_ok=True)
     clips, trajs = [], []
+    report("Rendering the clip and the 3D replay")
     for (name, _), r in zip((left, right), recs):
         q = r["qpos"][0, 0][:t_end]
         model, scene_fn = overlays(ev.env.mj_model, theta, q, ev.env.dt)  # make the attack visible
@@ -166,14 +191,15 @@ def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, obje
             "fall_rates": {name: float(r["fell"][0].mean()) for name, r in res.items()}}
 
 
-def run_attack(program: Program, theta: np.ndarray | None = None) -> dict:
+def run_attack(program: Program, theta: np.ndarray | None = None, report=lambda *a, **k: None) -> dict:
     s = sim()
     theta = np.asarray(compile_program(program).base) if theta is None else np.asarray(theta, np.float32)
     live = s["live_name"]
-    out = simulate(theta, ("v1", s["original"]), (live, s["live"]))
+    out = simulate(theta, ("v1", s["original"]), (live, s["live"]), report=report)
     fr = out["fall_rates"]
     ref = None
     if s["reference"] is not None and fr[live] > 0:
+        report("Checking whether even our toughest robot falls")
         ref = float(s["ev"](s["reference"], theta[None], seeds=8, key=4)["fell"].mean())
     from nemesis.adversary.cmaes import plausibility_cost
     implaus = float(plausibility_cost(theta[None])[0])
@@ -210,22 +236,26 @@ def _clean_handle(h: str) -> str:
     return "".join(c for c in h if c.isalnum() or c in "_-.").strip()[:24]
 
 
-async def _handle(text: str, ip: str, handle: str = "") -> dict:
-    _rate_limit(ip)
+async def _handle(text: str, ip: str, handle: str = "", report=lambda *a, **k: None, limited: bool = False) -> dict:
+    if not limited:
+        _rate_limit(ip)
+    report("Muse Wonder is turning your words into physics")
     try:
         program = await asyncio.to_thread(translate, text)
         compile_program(program)
     except (ValidationError, ValueError, json.JSONDecodeError) as e:
         raise HTTPException(400, f"Could not turn that into a physical attack: {str(e)[:200]}")
-    result = await log_attack(program, text=text, handle=_clean_handle(handle))
+    result = await log_attack(program, text=text, handle=_clean_handle(handle), report=report)
     return {k: v for k, v in result.items() if k != "theta"}
 
 
 async def log_attack(program: Program, theta: np.ndarray | None = None, text: str = "", source: str = "human",
-                     handle: str = "") -> dict:
+                     handle: str = "", report=lambda *a, **k: None) -> dict:
     """Simulates an attack (v1 vs live), renders it, and appends it to the attack log."""
+    if _gpu.locked():
+        report("Waiting for the GPU (another simulation is running)")
     async with _gpu:
-        result = await asyncio.to_thread(run_attack, program, theta)
+        result = await asyncio.to_thread(run_attack, program, theta, report)
     result.update(text=text, ts=time.time(), source=source, handle=handle)
     ROOT.mkdir(parents=True, exist_ok=True)
     with open(LOG, "a") as f:
@@ -252,17 +282,29 @@ def _maybe_community_patch():
 
 
 @app.post("/api/attack")
-async def attack(body: AttackIn, request: Request):
+async def attack(body: AttackIn, request: Request, live: bool = Query(False, alias="stream")):
+    if live:
+        _rate_limit(request.client.host)
+        return stream("attack", lambda report: _handle(body.text, request.client.host, body.handle, report, True))
     return await _handle(body.text, request.client.host, body.handle)
 
 
 @app.post("/api/attack_voice")
-async def attack_voice(request: Request, audio: UploadFile = File(...)):
+async def attack_voice(request: Request, audio: UploadFile = File(...), live: bool = Query(False, alias="stream")):
     path = ROOT / "voice" / f"{uuid.uuid4().hex}.wav"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(await audio.read())
-    text = await asyncio.to_thread(client.transcribe, path, "serve/voice")
-    return {"transcript": text, **(await _handle(text, request.client.host))}
+    ip = request.client.host
+
+    async def run(report):
+        report("Muse Voice Transcribe is listening")
+        text = await asyncio.to_thread(client.transcribe, path, "serve/voice")
+        report(f"Heard “{text}”")
+        return {"transcript": text, **(await _handle(text, ip, report=report, limited=live))}
+    if live:
+        _rate_limit(ip)
+        return stream("attack", run)
+    return await run(lambda *a, **k: None)
 
 
 # ---- Your world: a photo or video of a place becomes a scenario ------------------------------
@@ -272,7 +314,7 @@ WORLD_TYPES = {".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".webm", ".m4v"
 
 
 @app.post("/api/world")
-async def world(request: Request, media: UploadFile = File(...)):
+async def world(request: Request, media: UploadFile = File(...), live: bool = Query(False, alias="stream")):
     from server import world as W
 
     _rate_limit(request.client.host)
@@ -285,16 +327,24 @@ async def world(request: Request, media: UploadFile = File(...)):
     MEDIA.mkdir(parents=True, exist_ok=True)
     path = MEDIA / f"{uuid.uuid4().hex[:12]}{suffix}"
     path.write_bytes(data)
-    reading = await asyncio.to_thread(W.read_place, path)
-    text = W.as_attack_text(reading)
-    try:
-        program = await asyncio.to_thread(translate, text, 1200)
-        compile_program(program)
-    except (ValidationError, ValueError, json.JSONDecodeError) as e:
-        raise HTTPException(400, f"Could not turn that place into physics: {str(e)[:200]}")
-    result = await log_attack(program, text=f"Your world: {reading['place']}", source="world")
-    result.update(reading=reading, media=f"/media/{path.name}")
-    return {k: v for k, v in result.items() if k != "theta"}
+
+    async def run(report):
+        report("Muse Spark is reading your place")
+        reading = await asyncio.to_thread(W.read_place, path)
+        report(f"Spark sees {reading['place']}, friction ≈ {float(reading['friction']):.2f}")
+        text = W.as_attack_text(reading)
+        report("Muse Wonder is turning it into physics")
+        try:
+            program = await asyncio.to_thread(translate, text, 1200)
+            compile_program(program)
+        except (ValidationError, ValueError, json.JSONDecodeError) as e:
+            raise HTTPException(400, f"Could not turn that place into physics: {str(e)[:200]}")
+        result = await log_attack(program, text=f"Your world: {reading['place']}", source="world", report=report)
+        result.update(reading=reading, media=f"/media/{path.name}")
+        return {k: v for k, v in result.items() if k != "theta"}
+    if live:
+        return stream("attack", run)
+    return await run(lambda *a, **k: None)
 
 
 @app.get("/media/{name}")
@@ -526,6 +576,7 @@ async def agent(body: AgentIn, request: Request):
 # ---- You vs Muse ---------------------------------------------------------------------------------
 
 DUELS: dict = {}
+DUEL_DIR = ROOT / "duels"
 _tally = None
 
 
@@ -546,10 +597,27 @@ class RoundIn(BaseModel):
     text: str = Field(min_length=3, max_length=500)
 
 
+def _lineage_texts() -> list[str]:
+    """Every situation the live robot has been retrained on (Muse is told, so it looks elsewhere)."""
+    trained = {a for v in versions.all() for a in v["attacks"]}
+    return [r["text"] for r in _attacks() if r["id"] in trained]
+
+
 def _muse_next(duel):
-    """Muse locks in its attack for the next round before the human submits theirs."""
+    """Muse locks in its attack for the next round before the human submits theirs. On Hard it first
+    practises six candidates privately on the live robot and seals the best one."""
     from server import duel as D
-    duel.pending = asyncio.create_task(asyncio.to_thread(D.muse_attack, duel))
+
+    async def go():
+        cands = await asyncio.to_thread(D.muse_attacks, duel, _lineage_texts())
+        pick = 0
+        if duel.hard and len(cands) > 1:
+            async with _gpu:
+                pick, scores = await asyncio.to_thread(D.practice, sim(), cands)
+            duel.practice = {"tried": len(cands), "scores": scores, "picked": pick}
+        D.seal(duel, *cands[pick])
+        return cands[pick]
+    duel.pending = asyncio.create_task(go())
 
 
 @app.post("/api/duel")
@@ -566,31 +634,41 @@ async def new_duel(body: DuelIn, request: Request):
     return duel.public()
 
 
-async def _round(duel, text: str, transcript: str | None = None) -> dict:
+async def _round(duel, text: str, transcript: str | None = None, report=lambda *a, **k: None) -> dict:
     from server import duel as D
 
     if duel.over:
         raise HTTPException(400, "This duel is over. Start a new one!")
+    report("Muse Wonder is turning your words into physics")
     try:
         program = await asyncio.to_thread(translate, text)
         compile_program(program)
     except (ValidationError, ValueError, json.JSONDecodeError) as e:
         raise HTTPException(400, f"Could not turn that into a physical attack: {str(e)[:200]}")
+    if not duel.pending.done():
+        report("Waiting for Muse to finish writing its attack")
     say, muse_prog = await duel.pending  # locked in before the human's attack existed
     sealed, commit = duel.sealed, duel.commit
+    report("Unsealing Muse's attack" + (f" (its best of {duel.practice['tried']} practice runs)"
+                                          if duel.hard and getattr(duel, "practice", None) else ""))
+    if _gpu.locked():
+        report("Waiting for the GPU (another simulation is running)")
     async with _gpu:
         s = sim()
         th_you = np.asarray(compile_program(program).base, np.float32)
-        th_muse = await asyncio.to_thread(D.tune, s["ev"], s["live"], muse_prog) if duel.hard             else np.asarray(compile_program(muse_prog).base, np.float32)
-        res = await asyncio.to_thread(D.play, s, th_you, th_muse, int(time.time()) % 10_000)
+        th_muse = np.asarray(compile_program(muse_prog).base, np.float32)
+        res = await asyncio.to_thread(D.play, s, th_you, th_muse, int(time.time()) % 10_000, report)
     res["you"]["text"], res["muse"]["text"] = text, say or muse_prog.hypothesis
     n = len(duel.history) + 1
+    report("Muse is commenting on the round")
     res["comment"] = await asyncio.to_thread(D.commentary, n, res["you"], res["muse"])
     res["round"], res["transcript"] = n, transcript
     res["sealed"], res["commit"] = sealed, commit  # the browser re-hashes sealed and checks it
     for side in ("you", "muse"):
         res[side]["id"] = f"{duel.id}-{n}-{side}"
     duel.history.append(res)
+    DUEL_DIR.mkdir(parents=True, exist_ok=True)  # every round is kept so the lobby can replay recent duels
+    (DUEL_DIR / f"{duel.id}.json").write_text(json.dumps({**duel.public(), "ts": time.time()}, default=float))
     if duel.over:
         tally().add(duel.winner())
     else:
@@ -602,25 +680,34 @@ async def _round(duel, text: str, transcript: str | None = None) -> dict:
 
 
 @app.post("/api/duel/{duel_id}/round")
-async def duel_round(duel_id: str, body: RoundIn, request: Request):
+async def duel_round(duel_id: str, body: RoundIn, request: Request, live: bool = Query(False, alias="stream")):
     if duel_id not in DUELS:
         raise HTTPException(404, "Duel not found (the server may have restarted). Start a new one!")
     _rate_limit(request.client.host, per_min=6, bucket="duel-round")
+    if live:
+        return stream("round", lambda report: _round(DUELS[duel_id], body.text, report=report))
     return await _round(DUELS[duel_id], body.text)
 
 
 @app.post("/api/duel/{duel_id}/round_voice")
-async def duel_round_voice(duel_id: str, request: Request, audio: UploadFile = File(...)):
+async def duel_round_voice(duel_id: str, request: Request, audio: UploadFile = File(...),
+                           live: bool = Query(False, alias="stream")):
     if duel_id not in DUELS:
         raise HTTPException(404, "Duel not found (the server may have restarted). Start a new one!")
     _rate_limit(request.client.host, per_min=6, bucket="duel-round")
     path = ROOT / "voice" / f"{uuid.uuid4().hex}.wav"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(await audio.read())
-    text = await asyncio.to_thread(client.transcribe, path, "duel/voice")
-    if len(text.strip()) < 3:
-        raise HTTPException(400, "Didn't catch that. Try again?")
-    return await _round(DUELS[duel_id], text, transcript=text)
+    async def run(report):
+        report("Muse Voice Transcribe is listening")
+        text = await asyncio.to_thread(client.transcribe, path, "duel/voice")
+        if len(text.strip()) < 3:
+            raise HTTPException(400, "Didn't catch that. Try again?")
+        report(f"Heard “{text}”")
+        return await _round(DUELS[duel_id], text, transcript=text, report=report)
+    if live:
+        return stream("round", run)
+    return await run(lambda *a, **k: None)
 
 
 @app.get("/api/duel/{duel_id}")
@@ -641,7 +728,21 @@ def duel_muse(duel_id: str):
     ready = d.pending is not None and d.pending.done()
     if ready and d.pending.exception():
         return {"locked": False, "error": str(d.pending.exception())[:200]}
-    return {"locked": ready, "commit": d.commit if ready else None, "round": len(d.history) + 1}
+    return {"locked": ready, "commit": d.commit if ready else None, "round": len(d.history) + 1,
+            "practised": (getattr(d, "practice", None) or {}).get("tried") if ready and d.hard else None}
+
+
+@app.get("/api/duels/recent")
+def recent_duel_round():
+    """The most recent duel round where at least one robot fell: the lobby replays it."""
+    files = sorted(DUEL_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True) if DUEL_DIR.exists() else []
+    for f in files[:20]:
+        d = json.loads(f.read_text())
+        for r in reversed(d["history"]):
+            if max(r["you"]["fall_rate"], r["muse"]["fall_rate"]) >= 0.5:
+                return {"duel": d["id"], "round": r["round"], "version": d["version"], "you": r["you"], "muse": r["muse"],
+                        "comment": r.get("comment", "")}
+    return {}
 
 
 @app.get("/api/duel_tally")

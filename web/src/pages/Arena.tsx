@@ -4,7 +4,8 @@ import Composer from "../components/Composer";
 import PatchPanel from "../components/PatchPanel";
 import Replay from "../components/Replay";
 import Seeds from "../components/Seeds";
-import { api, post, upload } from "../lib/api";
+import Steps from "../components/Steps";
+import { api, post, runJob, upload } from "../lib/api";
 
 type Side = { text: string; score: number; seeds: boolean[]; subtlety: number; cheap: boolean; reference_fall_rate: number; traj: any };
 type Round = { round: number; you: Side; muse: Side; comment: string; sealed: string; commit: string };
@@ -20,6 +21,7 @@ export default function Arena() {
   const [duel, setDuel] = useState<Duel | null>(null);
   const [phase, setPhase] = useState<"lobby" | "turn" | "running" | "reveal" | "final">("lobby");
   const [commit, setCommit] = useState<string | null>(null);
+  const [practised, setPractised] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   const loadTally = () => api<Tally>("/api/duel_tally").then(setTally).catch(() => {});
@@ -31,7 +33,7 @@ export default function Arena() {
     setCommit(null);
     const t = setInterval(async () => {
       const m = await api(`/api/duel/${duel.id}/muse`).catch(() => null);
-      if (m?.locked) { setCommit(m.commit); clearInterval(t); }
+      if (m?.locked) { setCommit(m.commit); setPractised(m.practised ?? null); clearInterval(t); }
     }, 1200);
     return () => clearInterval(t);
   }, [phase, duel?.history.length]);
@@ -42,33 +44,37 @@ export default function Arena() {
     catch (e: any) { setError(e.message); }
   };
 
-  const play = async (req: () => Promise<Duel>) => {
-    setPhase("running"); setError("");
-    try { setDuel(await req()); setPhase("reveal"); }
-    catch (e: any) { setError(e.message); setPhase("turn"); }
+  const [steps, setSteps] = useState<string[]>([]);
+  const play = async (start: () => Promise<{ job: string }>) => {
+    setPhase("running"); setError(""); setSteps(["Sending your attack"]);
+    try {
+      setDuel(await runJob(start(), (st) => setSteps((xs) => (xs.at(-1) === st ? xs : [...xs, st]))));
+      setPhase("reveal");
+    } catch (e: any) { setError(e.message); setPhase("turn"); }
   };
 
   if (phase === "lobby" || !duel) {
     return (
-      <div className="grid gap-16 pt-10 sm:pt-16 lg:grid-cols-[1.3fr_1fr]">
-        <section>
-          <h1 className="text-[48px] font-medium leading-[1] tracking-[-0.04em] sm:text-[84px]">
+      <div className="grid items-center gap-12 pt-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:gap-14 lg:pt-12">
+        <section className="max-w-[460px]">
+          <h1 className="font-medium leading-[1] tracking-[-0.04em]" style={{ fontSize: "clamp(44px, min(4.6vw, 8.5vh), 76px)" }}>
             <span className="text-peri">You</span> <span className="text-faint">vs</span> <span className="text-ember">Muse</span>
           </h1>
-          <p className="mt-8 max-w-lg text-[17px] leading-relaxed text-mute">
+          <p className="mt-6 text-base leading-[1.55] text-ink/75">
             You both write an attack on the same robot, at the same time. The subtlest one that still knocks it over wins.
             Brute force scores nothing.
           </p>
-          <div className="mt-10 flex flex-wrap items-center gap-3">
+          <div className="mt-8 flex flex-wrap items-center gap-2.5">
             <Toggle options={[["3", "Best of 3"], ["5", "Best of 5"]]} value={String(rounds)} onChange={(v) => setRounds(+v)} />
             <Toggle options={[["0", "Normal"], ["1", "Hard"]]} value={hard ? "1" : "0"} onChange={(v) => setHard(v === "1")} />
           </div>
-          <button onClick={start} className="mt-6 flex items-center gap-2 rounded-full bg-ink px-6 py-3 text-[15px] font-medium text-black transition-opacity hover:opacity-85">
-            Start <ArrowRight size={16} />
+          <button onClick={start} className="mt-5 flex items-center gap-2 rounded-full bg-ink px-6 py-3 text-[15px] font-medium text-black transition-opacity hover:opacity-85">
+            Start a duel <ArrowRight size={16} />
           </button>
           {error && <p className="mt-3 text-sm text-ember">{error}</p>}
+          <Record tally={tally} />
         </section>
-        <Record tally={tally} />
+        <LastRound />
       </div>
     );
   }
@@ -82,8 +88,8 @@ export default function Arena() {
         <div className="rise mt-10 grid gap-5 lg:grid-cols-[1.4fr_1fr]">
           <div>
             <Composer accent="bg-peri" examples={EXAMPLES}
-              onText={(text) => play(() => post(`/api/duel/${duel.id}/round`, { text }))}
-              onVoice={(wav) => play(() => upload(`/api/duel/${duel.id}/round_voice`, "audio", wav, "attack.wav"))} />
+              onText={(text) => play(() => post(`/api/duel/${duel.id}/round?stream=1`, { text }))}
+              onVoice={(wav) => play(() => upload(`/api/duel/${duel.id}/round_voice?stream=1`, "audio", wav, "attack.wav"))} />
             {error && <p className="mt-3 text-sm text-ember">{error}</p>}
           </div>
           <div className="flex items-center gap-4 rounded-2xl border border-line px-5 py-4">
@@ -91,7 +97,8 @@ export default function Arena() {
               <Lock size={16} strokeWidth={1.8} />
             </div>
             <div className="min-w-0">
-              <p className="text-[15px]">{commit ? "Muse has sealed its attack" : <>Muse is writing its attack<span className="blink">…</span></>}</p>
+              <p className="text-[15px]">{commit ? (practised ? `Muse practised ${practised} attacks and sealed its best` : "Muse has sealed its attack")
+                : <>{hard ? "Muse is writing and practising attacks" : "Muse is writing its attack"}<span className="blink">…</span></>}</p>
               <p className="truncate font-mono text-xs text-faint">{commit ? `sha256 ${commit}` : "it never sees yours"}</p>
             </div>
           </div>
@@ -99,9 +106,9 @@ export default function Arena() {
       )}
 
       {phase === "running" && (
-        <div className="mx-auto mt-24 w-64 text-center">
-          <p className="text-sm text-mute">Running both attacks on the same robot</p>
-          <div className="mt-4 h-px overflow-hidden bg-line"><div className="sweep h-full w-1/3 bg-ember" /></div>
+        <div className="mx-auto mt-20 w-80">
+          <Steps steps={steps} />
+          <div className="mt-5 h-px overflow-hidden bg-line"><div className="sweep h-full w-1/3 bg-ember" /></div>
         </div>
       )}
 
@@ -126,19 +133,53 @@ function Toggle({ options, value, onChange }: { options: [string, string][]; val
 }
 
 function Record({ tally }: { tally: Tally | null }) {
-  const log = tally?.log?.slice(-60) || [];
+  const log = tally?.log?.slice(-24) || [];
+  if (!tally) return null;
   return (
-    <aside className="self-end">
-      <div className="grid grid-cols-12 gap-1.5">
-        {log.map((w, i) => <i key={i} className={`block aspect-square ${w === "you" ? "bg-peri" : w === "muse" ? "bg-ember" : "bg-white/25"}`} />)}
-        {Array.from({ length: Math.max(0, 60 - log.length) }, (_, i) => <i key={`e${i}`} className="block aspect-square border border-white/[.07]" />)}
+    <div className="mt-10 flex items-center gap-4">
+      <div className="flex gap-1">
+        {log.map((w, i) => <i key={i} className={`block size-2.5 ${w === "you" ? "bg-peri" : w === "muse" ? "bg-ember" : "bg-white/30"}`} />)}
+        {Array.from({ length: Math.max(0, 12 - log.length) }, (_, i) => <i key={`e${i}`} className="block size-2.5 border border-white/10" />)}
       </div>
-      <p className="mt-4 text-sm text-mute">
-        Humans <span className="text-peri">{tally?.you ?? 0}</span>
-        <span className="mx-2 text-faint">·</span>
-        Muse <span className="text-ember">{tally?.muse ?? 0}</span>
+      <p className="text-sm text-mute">
+        Humans <span className="text-peri">{tally.you}</span><span className="mx-2 text-faint">·</span>Muse <span className="text-ember">{tally.muse}</span>
       </p>
-    </aside>
+    </div>
+  );
+}
+
+/** The lobby's visual: the most recent duel round, your robot and Muse's side by side. */
+function LastRound() {
+  const [r, setR] = useState<any>(null);
+  useEffect(() => { api("/api/duels/recent").then((x) => setR(x?.you ? x : null)).catch(() => {}); }, []);
+  if (!r) {
+    return (
+      <div className="relative aspect-[16/11] w-full overflow-hidden rounded-2xl border border-line bg-[#0b0d12]">
+        <Replay trajs={[{ url: "/assets/sample_traj.json", label: "" }]} hud={false} className="absolute inset-0" />
+      </div>
+    );
+  }
+  const side = (who: "you" | "muse") => {
+    const x = r[who], color = who === "you" ? "text-peri" : "text-ember", won = x.score > r[who === "you" ? "muse" : "you"].score;
+    return (
+      <div className="flex min-w-0 flex-col">
+        <div className="relative aspect-[4/5] overflow-hidden bg-[#0b0d12]">
+          <Replay trajs={[{ ...x.traj, label: who === "you" ? "YOU" : "MUSE" }]} hud={false} className="absolute inset-0" />
+        </div>
+        <div className="flex items-start justify-between gap-3 px-4 py-3.5">
+          <p className="min-w-0 text-[14px] leading-snug text-ink/80">{x.text}</p>
+          <span className={`font-mono text-lg ${won ? color : "text-faint"}`}>{x.score}</span>
+        </div>
+      </div>
+    );
+  };
+  return (
+    <figure className="w-full">
+      <div className="grid grid-cols-2 divide-x divide-line overflow-hidden rounded-2xl border border-line bg-panel">
+        {side("you")}{side("muse")}
+      </div>
+      {r.comment && <figcaption className="mt-3 text-center text-[14px] text-mute">{r.comment}</figcaption>}
+    </figure>
   );
 }
 

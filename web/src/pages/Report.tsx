@@ -19,12 +19,24 @@ export default function Report() {
   const [missing, setMissing] = useState(false);
   const [status, setStatus] = useState("");
 
+  const [loadError, setLoadError] = useState("");
   useEffect(() => {
+    let alive = true;
     (async () => {
-      const v = param || (await api("/api/versions")).live;
-      setVersion(v);
-      api(`/api/report/${v}`).then(setRep).catch(() => setMissing(true));
+      for (let attempt = 0; attempt < 5 && alive; attempt++) {  // the server may be restarting; retry briefly
+        try {
+          const v = param || (await api("/api/versions")).live;
+          if (!alive) return;
+          setVersion(v); setLoadError("");
+          try { setRep(await api(`/api/report/${v}`)); } catch { setMissing(true); }
+          return;
+        } catch (e: any) {
+          setLoadError(e.message || "can't reach the server");
+          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        }
+      }
     })();
+    return () => { alive = false; };
   }, [param]);
 
   const generate = async () => {
@@ -40,6 +52,9 @@ export default function Report() {
     return (
       <div className="mx-auto max-w-3xl pt-16">
         <h1 className="text-[40px] font-medium tracking-[-0.03em] sm:text-[56px]">Robot report <span className="text-faint">{version}</span></h1>
+        {!missing && (loadError
+          ? <p className="mt-8 text-mute">Can't reach the robot right now. <span className="text-faint">{loadError}</span></p>
+          : <p className="mt-8 text-sm text-faint"><span className="blink text-ember">●</span> Loading…</p>)}
         {missing && (
           <div className="mt-8">
             <p className="text-mute">Re-tests every attack and the 52-scenario gauntlet against {version}, measures safety margins, and has Muse Wonder write it up.</p>

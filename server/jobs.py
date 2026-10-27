@@ -68,5 +68,6 @@ def spawn(job: Job, coro):
         try:
             await coro
         except Exception as e:  # noqa: BLE001  (surface every failure to the page)
-            await job.finish("failed", {"error": f"{type(e).__name__}: {str(e)[:300]}"})
+            detail = getattr(e, "detail", None)  # an HTTPException's message is already user-facing
+            await job.finish("failed", {"error": str(detail) if detail else f"{type(e).__name__}: {str(e)[:300]}"})
     return asyncio.create_task(run())

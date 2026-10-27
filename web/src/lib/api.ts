@@ -45,3 +45,12 @@ export async function toWav(blob: Blob): Promise<Blob> {
   pcm.forEach((v, i) => out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, v)) * 0x7fff, true));
   return new Blob([out], { type: "audio/wav" });
 }
+
+/** Starts a streamed server job (an endpoint called with ?stream=1) and resolves with its result,
+ *  reporting each step as it happens. */
+export async function runJob(start: Promise<{ job: string }>, onStep: (step: string) => void): Promise<any> {
+  const { job } = await start;
+  const end = await follow(job, (e) => { if (e.stage === "step") onStep(e.step); });
+  if (end.stage === "failed") throw new Error(end.error || "failed");
+  return end.result;
+}

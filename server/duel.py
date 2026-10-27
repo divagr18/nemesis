@@ -30,9 +30,15 @@ about 1 m/s for 5 seconds). Each attack runs {seeds} times on the same robot wit
 
 Scoring: score = 100 x fall rate x subtlety, where subtlety = 1 - implausibility, and implausibility
 is the RMS of how far each changed condition is from normal relative to its physical range. Brute
-force scores 0: if even our toughest robot falls on it 90% of the time, it doesn't count. So the
-winning attack is the SMALLEST realistic change that still knocks the robot over. Usually that
-means one or two well-timed, moderate conditions, not everything at once.
+force scores 0: if even our toughest robot falls on it 90% of the time, it doesn't count.
+
+FALLS COME FIRST. An attack that never knocks the robot over scores 0 however subtle it is, and
+stacking many mild conditions usually does nothing. Pick the ONE or TWO conditions most likely to
+make this particular robot fall, at the smallest strength you believe still works.
+
+This robot has already been retrained on the situations below, so it now handles them; look for
+weaknesses elsewhere (different physics, timing, combinations it has not seen):
+{lineage}
 
 {difficulty}
 
@@ -45,11 +51,13 @@ Physical envelope:
 Program schema:
 {schema}
 
-Answer with JSON only: {{"say": "<your attack in plain English, at most 15 words>", "program": <Program>}}"""
+{answer}"""
 
 NORMAL = "Use FIXED numbers only (no [lo, hi] ranges). Include a command op (e.g. {\"op\": \"command\", \"a\": [1.0, 0, 0]})."
-HARD = ("You may leave up to 3 numbers as [lo, hi] ranges; an optimizer will tune them to the most subtle "
-        "failure. Include a command op (e.g. {\"op\": \"command\", \"a\": [1.0, 0, 0]}).")
+HARD = ("Write SIX different candidate attacks with FIXED numbers (no ranges), each a different idea. You will "
+        "test them privately on the live robot and play the best. Include a command op in each.")
+ANSWER_ONE = 'Answer with JSON only: {{"say": "<your attack in plain English, at most 15 words>", "program": <Program>}}'
+ANSWER_SIX = 'Answer with JSON only: {{"candidates": [{{"say": "<at most 15 words>", "program": <Program>}}, ...6 items]}}' 
 
 COMMENT_PROMPT = """You are the commentator of a "break the robot" duel between a human and Muse (an AI).
 Round {n}. Human: "{h}" -> fell {hf:.0%} of tries, subtlety {hs:.0%}, score {hp}{hcheap}.
@@ -99,10 +107,29 @@ class Duel:
             for i, r in enumerate(self.history))
 
 
-def muse_attack(duel: Duel) -> tuple[str, Program]:
+def _parse(item: dict) -> tuple[str, Program]:
+    prog = dict(item["program"])
+    prog.setdefault("name", "muse")
+    prog.setdefault("hypothesis", item.get("say", ""))
+    program = Program.model_validate(prog)
+    if compile_program(program).k:
+        raise ValueError("use fixed numbers only, no [lo, hi] ranges")
+    return str(item.get("say", ""))[:120], program
+
+
+def seal(duel: Duel, say: str, program: Program):
+    """Commitment: published before the human attacks, verifiable in the browser at the reveal."""
+    duel.sealed = json.dumps({"say": say, "program": program.model_dump(mode="json")}, sort_keys=True)
+    duel.commit = hashlib.sha256(duel.sealed.encode()).hexdigest()
+
+
+def muse_attacks(duel: Duel, lineage: list[str]) -> list[tuple[str, Program]]:
+    """Normal: one attack. Hard: six candidates, to be practised privately before sealing the best."""
     slots = "\n".join(f"- {s.name} [{s.unit}] {s.lo}..{s.hi}: {s.doc}" for s in C.SLOTS)
     prompt = MUSE_PROMPT.format(seeds=SEEDS, difficulty=HARD if duel.hard else NORMAL,
-                                history=duel.history_text(), slots=slots, schema=json.dumps(json_schema()))
+                                lineage="\n".join(f"- {t}" for t in lineage[-25:]) or "- (nothing yet)",
+                                history=duel.history_text(), slots=slots, schema=json.dumps(json_schema()),
+                                answer=ANSWER_SIX if duel.hard else ANSWER_ONE)
     last = None
     for _ in range(3):  # a malformed program gets the validation error back once or twice
         raw = client.respond(prompt + (f"\n\nYour previous answer was invalid: {last}" if last else ""),
@@ -111,23 +138,34 @@ def muse_attack(duel: Duel) -> tuple[str, Program]:
         raw = raw[raw.find("{"):raw.rfind("}") + 1]
         try:
             data = json.loads(raw)
-            prog = dict(data["program"])
-            prog.setdefault("name", "muse")
-            prog.setdefault("hypothesis", data.get("say", ""))
-            program = Program.model_validate(prog)
-            compiled = compile_program(program)
-            if not duel.hard and compiled.k:
-                raise ValueError("ranges are not allowed on normal difficulty; use fixed numbers")
-            if compiled.k > 3:
-                raise ValueError("at most 3 ranges")
-            say = str(data.get("say", ""))[:120]
-            # Commitment: published before the human attacks, verifiable in the browser at the reveal.
-            duel.sealed = json.dumps({"say": say, "program": program.model_dump(mode="json")}, sort_keys=True)
-            duel.commit = hashlib.sha256(duel.sealed.encode()).hexdigest()
-            return say, program
+            items = data["candidates"] if duel.hard else [data]
+            out = []
+            for item in items[:6]:
+                try:
+                    out.append(_parse(item))
+                except Exception:  # noqa: BLE001  (drop a bad candidate, keep the rest)
+                    if not duel.hard:
+                        raise
+            if not out:
+                raise ValueError("no valid candidate")
+            return out
         except Exception as e:  # noqa: BLE001
             last = str(e)[:300]
     raise RuntimeError(f"Muse could not produce a valid attack: {last}")
+
+
+def practice(sim: dict, candidates: list[tuple[str, Program]]) -> tuple[int, list[float]]:
+    """Hard mode: Muse privately tries every candidate on the live robot (other seeds than the duel's)
+    and keeps the one with the best expected score."""
+    from nemesis.adversary.cmaes import plausibility_cost
+
+    thetas = np.stack([np.asarray(compile_program(p).base, np.float32) for _, p in candidates])
+    fall = sim["ev"](sim["live"], thetas, seeds=SEEDS, key=9_001)["fell"].mean(1)
+    ref = sim["ev"](sim["reference"], thetas, seeds=SEEDS, key=9_001)["fell"].mean(1) \
+        if sim.get("reference") is not None else np.zeros(len(thetas))
+    subtle = np.maximum(0.0, 1.0 - plausibility_cost(thetas))
+    expected = np.where(ref >= UNSURVIVABLE, 0.0, fall * subtle)
+    return int(np.argmax(expected)), [round(float(x), 3) for x in expected]
 
 
 def tune(ev, params, program: Program) -> np.ndarray:
@@ -141,17 +179,20 @@ def tune(ev, params, program: Program) -> np.ndarray:
     return np.asarray(r.best_theta, np.float32)
 
 
-def play(sim: dict, theta_you: np.ndarray, theta_muse: np.ndarray, key: int) -> dict:
+def play(sim: dict, theta_you: np.ndarray, theta_muse: np.ndarray, key: int, report=lambda *a, **k: None) -> dict:
     """Both attacks on the live robot, same seeds; one recorded rollout each for the replay."""
     from nemesis.adversary.cmaes import plausibility_cost
     from nemesis.sim import export
 
     ev, live = sim["ev"], sim["live"]
     thetas = np.stack([theta_you, theta_muse]).astype(np.float32)
+    report(f"Simulating both attacks · 2 × {SEEDS} runs on the same robot")
     res = ev(live, thetas, seeds=SEEDS, key=key)
+    report("Checking each attack against our toughest robot")
     ref = ev(sim["reference"], thetas, seeds=SEEDS, key=key)["fell"].mean(1) if sim.get("reference") is not None \
         else np.zeros(2)
     implaus = plausibility_cost(thetas)
+    report("Recording replays")
     out = []
     for i, (who, th) in enumerate((("you", theta_you), ("muse", theta_muse))):
         fell = res["fell"][i]
