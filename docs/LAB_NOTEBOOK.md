@@ -276,6 +276,37 @@ Evaluated on the PC's 4060 with 8 seeds per scenario. Policies: baseline, dr s1/
 - The full Nemesis loop now runs on open weights (Glimmer) or the API (Wonder). This qualifies for *Best Build on Meta Open Weight Models*: served on our own hardware.
 - Experiment D runs its Glimmer-proposer condition against this server.
 
+## Oct 27: pre-registered results so far (A, B, C, D partial; E and F-dr_s1 complete)
+
+- **H-E: SUPPORTED.** DR fall rate on hand-written + realistic gauntlet (16 seeds/scenario), by envelope width:
+
+  | w | per seed | mean |
+  |---|---|---|
+  | 0.25 | 11.9 / 10.5 / 9.6% | **10.7%** |
+  | 0.5 | 6.1 / 5.4 / 5.4% | **5.6%** |
+  | 1.0 | 12.4 / 12.5 / 15.4% | **13.4%** |
+
+  DR is about 2× worse when the hand-picked width is off in either direction. **Implication:** w = 1.0 (the full physical envelope) is exactly the information Nemesis gets. With the same information, DR is about 13% vs about 5–7% for Nemesis-trained policies (partial eval; to confirm with the full 16-seed evaluation). Nemesis matches *hand-tuned* DR without the tuning.
+- **H-A: NOT SUPPORTED** (partial, 31/36). Strict failures, nemesis / shuffled / box / random:
+  - baseline target: 6.0 / 8.7 / 0 / n/a
+  - DR-hardened: 1.3 / 4.7 / 0 / 0
+  - Nemesis-hardened: 2.3 / 7.3 / 0 / 0
+
+  Blind *programs* beat Wonder's programs. Flat full-union CMA and uniform random find **zero** strictly plausible failures: they always stack many perturbation families.
+- **H-B: NOT SUPPORTED.** Shuffled leads at every budget on the DR target.
+- **H-C: SUPPORTED** (partial). Small → full space, strict failures:
+  - box: 10.5 → **0**
+  - shuffled: 10.5 → 8.5
+  - nemesis: 5.5 → 6.5
+
+  Program-structured search, LLM or random, survives a large search space; flat search collapses. This is relevant against Q-DEG-style continuous-vector search.
+- **D (partial):**
+  - Spark feedback: 6.5 vs 6.0 without. Within the seed range, so **INCONCLUSIVE**.
+  - History: hurts (7.5 without vs 6.5 with), so **NOT SUPPORTED**.
+  - Glimmer runs pending.
+- **H-F (dr_s1): NOT SUPPORTED.** Held-out residual falls: original 61.3% / Nemesis repair 66.2% / continue DR 53.7%. Gauntlet: 5.4 / 8.2 / 5.2%. A handful of narrow counterexamples (about 5 programs) overfits, while broad DR keeps generalizing. `dr_s2` pending.
+- **Emerging story:** the attack-program DSL is what makes realistic failures findable. Meta's models make the red team *explainable and usable* (hypotheses, Spark diagnoses, natural-language and voice attacks, an open-weight option). As a training method, Nemesis matches hand-tuned DR without needing the tuning, but does not beat tuned DR, and narrow residual repair overfits.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
