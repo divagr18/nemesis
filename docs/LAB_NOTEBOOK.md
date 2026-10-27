@@ -264,6 +264,18 @@ Evaluated on the PC's 4060 with 8 seeds per scenario. Policies: baseline, dr s1/
   - E (DR widths) running on Mumbai.
   - D and F wait for A.
 
+## Oct 27: Muse Glimmer running as the adversary on our own GPU
+
+- `meta-models/Muse-Glimmer-30B-GGUF:Q4_K_M` (16.8 GB) served by llama.cpp (`ghcr.io/ggml-org/llama.cpp:server-cuda`) on a g5.2xlarge (A10G 24 GB).
+  - Settings: `-ngl 99 -c 24576 -fa on`, q8_0 KV cache.
+  - Port 8080 is open only inside the VPC.
+  - Download plus load took about 15 min.
+- **First proposal round through Glimmer:** 4 of 4 programs valid and compilable in 85 s, with physically reasoned hypotheses at the level of Wonder's. Examples:
+  - "low rear friction combined with a sudden yaw reversal causes spin-out"
+  - "IMU roll/pitch bias makes the controller believe the trunk is level while it is actually rolled"
+- The full Nemesis loop now runs on open weights (Glimmer) or the API (Wonder). This qualifies for *Best Build on Meta Open Weight Models*: served on our own hardware.
+- Experiment D runs its Glimmer-proposer condition against this server.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
