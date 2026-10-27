@@ -45,14 +45,16 @@ export default function Lab() {
 
   return (
     <div>
-      <section className="pt-10 pb-10 sm:pt-16">
-        <h1 className="max-w-3xl text-[44px] font-medium leading-[1.02] tracking-[-0.035em] sm:text-[72px]">
+      {/* Hero: headline, replay and input all fit the first screen. */}
+      <div className="flex h-[calc(100dvh-8.5rem)] min-h-[540px] flex-col">
+      <section className="shrink-0 pb-6 sm:pb-8">
+        <h1 className="text-[34px] font-medium leading-[1.02] tracking-[-0.035em] sm:text-[52px] lg:text-[60px]">
           Try to break the robot.
           <span className="block text-faint">Then watch it learn.</span>
         </h1>
       </section>
 
-      <section className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-line bg-[#0b0d12] sm:aspect-[16/8]">
+      <section className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line bg-[#0b0d12]">
         {stage ? (
           <Replay key={JSON.stringify(stage)} trajs={stage.map((t: any, i: number) => ({ url: t.url, label: labels?.[i] || t.label }))} className="absolute inset-0" />
         ) : (
@@ -68,11 +70,15 @@ export default function Lab() {
         )}
       </section>
 
-      <section className="mx-auto mt-6 max-w-3xl">
+      <section className="mx-auto mt-4 w-full max-w-3xl shrink-0">
         <Composer busy={!!busy} examples={EXAMPLES}
           onText={(text) => run("Muse Wonder is turning that into physics…", () => post("/api/attack", { text }))}
           onVoice={(wav) => run("Listening, then simulating…", () => upload("/api/attack_voice", "audio", wav, "attack.wav"))}
           onFile={(f) => run("Muse Spark is reading your place…", () => upload("/api/world", "media", f, f.name))} />
+      </section>
+      </div>
+
+      <section className="mx-auto max-w-3xl">
         {error && <p className="mt-3 text-sm text-ember">{error}</p>}
 
         {result && !busy && <Verdict r={result} after={after} onPatch={async () => {

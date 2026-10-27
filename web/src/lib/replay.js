@@ -574,7 +574,7 @@ export async function mountReplay(container, opts = {}) {
 
   function frame(now) {
     raf = requestAnimationFrame(frame);
-    const dt = Math.min(0.25, (now - last) / 1000);  // cap: no jump after a stalled tab
+    const dt = Math.max(0, Math.min(0.25, (now - last) / 1000));  // cap: no jump after a stalled tab; never backwards
     last = now;
     if (!visible) return;
     if (playing) {
