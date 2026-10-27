@@ -245,6 +245,129 @@ Schedule:
 
 Go1 only for now; the G1 gets terrain later via the same registry hook.
 
+## P12: Forward plan, Oct 27 → submission (approved Oct 27)
+
+Features 1–8 were picked by the user, with 10 as a stretch. Positioning: describe a situation → the robot faces it → it learns. Build until Nov 3, 3 PM IST; video until Nov 5, 3 AM IST; then submit.
+
+### Hard constraints
+- θ stays **D = 80**. The critic's input includes θ, so changing D breaks every checkpoint. Go1 uses 63 slots, and terrain adds ~4, leaving ~13 free. New slots are appended in the padding with neutral = 0, then `THETA_LAYOUT_VERSION` is bumped.
+- Normal Go1 rollouts must stay bit-identical after any physics change; the audit's `compare_rollouts.py`/`diff_rollouts.py` probe is the check.
+- Subagents get disjoint file sets. Only the lead edits `server/app.py` and `web/src/pages/Lab.tsx`. Commit with explicit paths, never `-A`.
+- The PC server runs from a background SSH session and dies when the connection drops. The scheduled task needs the user's approval; otherwise stability work moves to the L40S box (0.4).
+
+---
+
+### 0. Leftover core work (today + Oct 28 AM, ~1 day, mostly parallel)
+| # | Task | Done when |
+|---|---|---|
+| 0.1 | Terrain agent lands. Then: verify the bit-identity numbers and the curb/stairs fall table, check that the replay draws `overlays.terrain`, and merge | Clips in `runs/terrain_clips/`; stairs render in the replay; tests pass |
+| 0.2 | **H-S run** (pre-registered, `dc9344c`): `widesweep_jobs.py S 3` on 3 L40S/A10G boxes with `fleet.sh`. Analyze with `analyze_wide.py`. Notebook + README line | Verdict in `docs/results/wide.md`; boxes stopped |
+| 0.3 | Fix the pre-existing failure in `tests/test_robots.py::test_humanoid_wrapper` (pelvis 0.077 vs 0.1 bound), or justify the bound | Full suite green on the PC |
+| 0.4 | Stable dev server: a scheduled task on the PC (ask the user), **or** move the dev server to the L40S box with `deploy.sh up` and no public DNS yet | Survives an SSH drop |
+| 0.5 | Tagline: user picks from the calm list → Lab hero; README headline and VIDEO_PLAN updated to the positioning | Copy consistent everywhere |
+| 0.6 | Polish debt: a mobile pass on all four pages with real phone emulation (CDP device metrics, not a small window); Hall of Fame / agent clips in dark style (`render.py` dark scene, or replay thumbnails); verify the Agent chat view with a live run | Screenshots at 390 px and 1536 px look right |
+
+### 1–8. New features
+Each lists its design, the existing code it reuses, and what's done.
+
+### 1. Watch it learn (Patch timelapse), Oct 28, ~6 h
+- **Worker:** `server/patch_worker.py` trains with `num_evals=6` and `num_eval_envs=16`. `ppo.train` already saves a checkpoint per eval through `save_ckpt` (the `policy_params_fn` hook).
+- **Snapshots:** in the gate phase, the existing `Evaluator` (built for the gate) records a 1-seed rollout of the attack for each checkpoint. The seed is the one where the parent falls. Each rollout is exported with `nemesis/sim/export.trajectory`, and the worker emits `EVENT timelapse {snapshots:[{pct, fell, traj}]}`, relayed by `run_patch` in `app.py`.
+- **UI:** `PatchPanel` / `PatchInline` show an attempt strip ("attempt 1 … 5", fell / held). Clicking one plays it in the main `Replay`; it autoplays through the attempts in order.
+- **Done when:** an accepted patch shows ≥4 attempts that go from fall to hold.
+
+### 5. Spark explains what it learned, Oct 28, ~3 h
+- After an accepted patch, compute gait metrics from the parent and new trajectories: stance width, trunk height, step frequency, time to fall.
+- Send the tiled before/after mp4 (from `simulate`) plus those numbers to Spark with a schema (`nemesis/adversary/observe.py` pattern, `client.video_item`), and emit `learned {sentence}`.
+- One line under "Live", labelled Muse Spark.
+- **Done when:** the sentence cites at least one measured number.
+
+### 8. Version changelog, Oct 28, ~2 h
+- In `Versions.add` (`server/versions.py`), Wonder writes `{learned, still_cant}` from the gate suites, the attack texts and the retest statuses.
+- Stored in `versions.json`; shown in the Lab lineage and on the Report.
+- **Done when:** every new version has two lines.
+
+### 7. Same situation, two robots (humanoid on the site), Oct 28–29, ~6 h (agent; server parts by lead)
+- **Server:** per-robot `sim()` state (evaluator, v1, live, reference) keyed by robot. The G1 policy is `runs/g1_baseline`, which also serves as its reference.
+  - `translate` uses `C.layout(robot)` slots and `dsl.json_schema(robot)` with a G1 robot description.
+  - `simulate`/`overlays`/`export` get `robot=`, plus a `g1_scene.json` asset from `export.scene_assets`.
+  - `versions` per robot (separate lineage dirs). `patch_worker --robot`.
+- **UI:** a robot toggle (Go1 / G1 / both) in the Break it hero. "Both" runs one sentence on each robot and shows two Replays side by side. `Replay` gets an `assetsUrl` prop per robot.
+- **Done when:** "a hard shove from the left" shows the Go1 holding and the G1 falling (or the reverse), and a G1 patch completes.
+
+### 4. Safety envelope map, Oct 29, ~4 h
+- `/api/envelope {attack_id, versions:[a,b]}`: take the top-2 dominant slots (generalize `report.dominant_slot` to return a ranked list) and run an 11 × 11 grid × 16 seeds per version in one batched `ev()` call.
+- Returns fall-rate grids. A `Heatmap` component draws them (SVG, ember = falls).
+- Shown in Break it after a patch (before vs after) and per finding on the Report, with a "safe for μ ≥ … and pushes ≤ …" line.
+- **Done when:** the red region visibly shrinks after an accepted patch.
+
+### 2. Tell it where it's going (a route from a sentence), Oct 29–30, ~10 h (agent for the physics, lead for the UI)
+- **Slots** (fits the 13-slot budget): build on the terrain agent's stairs. Add a **ramp** (`ramp_angle`, `ramp_start`, `ramp_length`: one tilted box, quat from θ), a **second ice patch** (`ice2_mu`, `ice2_start`, `ice2_length`) and a **descent** (`stairs_landing` > 0 ⇒ the flight goes down again after a landing). K grows to ~10 boxes if needed.
+- **DSL:** a `course` op with an ordered list of segments, each `{kind: stairs_up | stairs_down | curb | ramp | ice | wet}` with a length or height and a start distance accumulated along the heading. It compiles to the slots above, and Wonder's prompt gets the segment vocabulary.
+- **Physics checks:** the same bit-identity rule.
+- **Overlays/export:** `overlays.terrain` gains `ramps` and `ice` lists. `replay.js` draws a sloped box and multiple ice slabs.
+- **UI:** in Break it, a course sentence shows a small segment legend under the replay ("steps · ice · ramp"), and the HUD chip marks where it fell.
+- **Done when:** "out the door, down three small steps, across an icy driveway, up a ramp" builds a visible course, the robot fails at one segment, and a patch gets it further or all the way. "Physics wins" stays honest for impossible step heights; the 0.1 fall table sets the realistic range.
+
+### 3. Deployment brief (describe a place → risk grid → train for it), Oct 30, ~7 h
+- `/api/brief {place, robot}`: Wonder (`proposer.propose`-style prompt with fixed values; world.py's rule of only pushes when people/pets/traffic) writes 8–12 named scenarios.
+- Batch-evaluate them on v1 and live (8 seeds), export a trajectory for each, then Spark labels the worst three.
+- "Train it for this place" runs `run_patch` on the top learnable, survivable scenarios. Raise the cap from 3 to 5, then fall back by learnability if the gate fails. After the patch, re-run the grid.
+- Stored in `runs/serve/briefs/<id>.json`. The Report takes `?brief=<id>` for a deployment header.
+- **New page `/places`:** a "Where will it work?" input, a scenario grid (name, fall squares before → after), click to replay, and the envelope map from #4 for the worst scenario.
+- The Agent can be seeded with a brief (Fable's #11, optional, ~2 h).
+- **Done when:** "a hospital with polished corridors and carts" produces a grid, a patch, and a re-graded grid.
+
+### 6. Shareable clips and link previews, Oct 30–31, ~5 h
+- **Server route `/a/<id>`:** an HTML shell with OG/Twitter tags (`summary_large_image`). The image is a PNG frame at the fall moment, extracted from the attack mp4 with ffmpeg and cached. The SPA then loads the attack by id: Lab reads `?a=` or the route param and fetches `/api/attack/<id>` (new GET).
+- **Vertical 9:16 lesson clip** (ffmpeg composite): the sentence as a caption, then the fall (parent), the timelapse attempts from #1, then the hold (new version), with the lineage label. A "Share" button gives an X intent with the `/a/<id>` URL, plus a download.
+- **Done when:** pasting `/a/<id>` into an X composer shows the card, and the vertical clip plays on a phone.
+
+### 10. (Stretch) Push it in your browser, Nov 1, timeboxed to 6 h
+- The pre-existing S2: `@mujoco/mujoco` WASM + the ONNX policy (Brax → ONNX via Playground's notebook pattern into `nemesis/export/onnx.py`, with a parity test).
+- Drag to shove; the "teach it" result downloads the new ONNX.
+- **De-risk first (1 h):** load the Go1 in the WASM build and step it with zero actions. If that fails, drop it.
+
+### Unscheduled backlog (not picked; only if everything above is green)
+- Fable's big swing A, **reproduce a real fall from video** (de-risk: Spark on 3 real clips).
+- Big swing B, **bring your own policy / `nemesis check` CLI** (de-risk: Playground's stock Go1 checkpoint through the evaluator).
+- Teach a new skill in words (old S4 / skill compiler).
+- Glimmer LoRA distillation (old S7).
+- Multilingual voice attacks.
+
+The old stretches S1 (Glimmer), S3 (voice) and S5 (humanoid) are done or folded into #7, and S6 is subsumed by Your world.
+
+---
+
+### Schedule (IST)
+| When | Lead | Agents in parallel |
+|---|---|---|
+| Oct 27 (rest) | 0.1 merge/verify terrain, 0.2 launch H-S, 0.4 stable server, 0.5 tagline | terrain agent (running) |
+| Oct 28 | #1 timelapse, #5 Spark learned, #8 changelog; 0.2 analysis | #7 humanoid server + assets (agent A); 0.3 test fix |
+| Oct 29 | #4 envelope map; #7 UI | #2 course physics/DSL (agent B, after terrain) |
+| Oct 30 | #2 UI, #3 deployment brief | #6 share pages + vertical clips (agent C) |
+| Oct 31 | L40S end-to-end run of every feature + **filming dry run**; 0.6 polish | fixes from the dry run |
+| Nov 1 | Buffer; #10 stretch (6 h timebox, de-risk first) | — |
+| Nov 2 | README/VIDEO_PLAN rewrite for the new arc (Fable: route sentence → falls → watch it learn → Spark explains → envelope widens → brief); capture footage | — |
+| Nov 3 AM | Public deploy on an L4 at a divagr.com subdomain (`deploy.sh up` with NEMESIS_DOMAIN; user adds the A record); repo public; **feature freeze 3 PM** | — |
+| Nov 3 3 PM → Nov 5 3 AM | Video (36 h), X post, submission | — |
+
+### Files touched (representative)
+- **Server:** `server/app.py` (lead only), `server/patch_worker.py` (#1, #5, #7), `server/versions.py` (#8, #7), new `server/brief.py` (#3), new `server/share.py` (#6), `server/report.py` (#4).
+- **Physics:** `nemesis/perturb/{canonical,apply,dsl}.py`, `nemesis/envs/base.py`, `nemesis/sim/{overlays,export}.py` (#2, terrain), `nemesis/adversary/{modes,baselines}.py`.
+- **Web:**
+  - `web/src/pages/{Lab,Agent,Report}.tsx` and new `Places.tsx`
+  - `web/src/components/{PatchPanel,PatchInline}.tsx` and new `Heatmap.tsx` / `Timelapse.tsx`
+  - `web/src/lib/replay.js` (ramps, multi-ice)
+- **Docs:** `PLAN.md` (P12 section mirroring this), `VIDEO_PLAN.md` (new arc), `docs/LAB_NOTEBOOK.md`, `README.md`.
+
+### Verification
+- **Physics changes (terrain, course):** neutral-θ Go1 rollouts bit-identical (audit probe); old θ vectors evaluate the same; full `pytest` on the PC CPU green; new tests per op (placement math, DSL round trip, export format).
+- **Server features:** an API smoke script per feature against the dev server (curl + SSE follow, like this session's `t2`–`t5` scripts): the patch emits `timelapse` and `learned`; `/api/envelope` returns 11×11 grids; `/api/brief` returns scenarios and trains; `/a/<id>` serves OG tags.
+- **UI:** headless Chrome screenshots at 1536×713 (the user's 125% scale), 1920×1080 and 390 px with device emulation, plus a real browser pass by the user through `localhost:8799`.
+- **End to end:** the Oct 31 L40S run of every feature in sequence, timed: Patch ≤ 2 min, brief ≤ 3 min, and the agent investigation recorded.
+- **Gates** in `PROGRESS.md` (G6 → new G9–G12 for features), notebook entries per feature with numbers.
+
 ## Stretch slots (pick up after the named gate, in priority order)
 | Slot | Sub-steps | Est. | After | Serves |
 |---|---|---|---|---|
