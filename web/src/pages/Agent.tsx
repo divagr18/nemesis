@@ -8,7 +8,7 @@ type Ev = { stage: string; [k: string]: any };
 type Output = { id: string; hypothesis: string; fall_rate: number; trajs: any[] | null; clip: string; diagnosis?: any; margin?: any };
 
 // Goals the live robot hasn't been trained on, so Muse can find a fall within the public site's tries.
-const SUGGEST = ["Tripping on a step or curb", "Slipping while turning", "A weak knee on wet tiles"];
+const SUGGEST = ["Tripping on a curb at a brisk walk", "Slipping while turning", "A weak knee on wet tiles"];
 const TRIES = 5;  // NEMESIS_AUTOPILOT_TRIES on the public site
 
 /** Agent mode: a chat with Muse on the left, the outputs it produces (3D replays, diagnoses, margins) on the right. */

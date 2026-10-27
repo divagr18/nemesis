@@ -15,6 +15,7 @@ createRoot(document.getElementById("root")!).render(
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Lab />} />
+          <Route path="a/:id" element={<Lab />} />
           <Route path="places" element={<Places />} />
           <Route path="arena" element={<Arena />} />
           <Route path="autopilot" element={<Agent />} />
