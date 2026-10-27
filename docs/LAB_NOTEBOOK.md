@@ -307,6 +307,28 @@ Evaluated on the PC's 4060 with 8 seeds per scenario. Policies: baseline, dr s1/
 - **H-F (dr_s1): NOT SUPPORTED.** Held-out residual falls: original 61.3% / Nemesis repair 66.2% / continue DR 53.7%. Gauntlet: 5.4 / 8.2 / 5.2%. A handful of narrow counterexamples (about 5 programs) overfits, while broad DR keeps generalizing. `dr_s2` pending.
 - **Emerging story:** the attack-program DSL is what makes realistic failures findable. Meta's models make the red team *explainable and usable* (hypotheses, Spark diagnoses, natural-language and voice attacks, an open-weight option). As a training method, Nemesis matches hand-tuned DR without needing the tuning, but does not beat tuned DR, and narrow residual repair overfits.
 
+## Oct 27: FINAL main experiment (15 runs, locked gauntlet, 16 seeds/scenario)
+
+- **Hand-written + realistic gauntlet, fall rate (52 scenarios), mean of 3 seeds:**
+  - baseline 17.7%
+  - **DR w=0.5: 5.6%** (from E)
+  - **box (flat CMA): 5.6%**
+  - shuffled: 6.0%
+  - random: 7.1%
+  - **nemesis: 7.7%** (5.2 / 10.8 / 7.0)
+  - DR w=0.25: 10.7%
+  - **DR w=1.0: 13.4%**
+
+  Hand-written part alone (32): baseline 27.9%; DR 9.3%; box 8.8%; shuffled 9.5%; random 11.2%; nemesis 12.4%.
+- **Sobol part (DR's own w=0.5 distribution):** DR 2–3%; box 5–8%; shuffled about 20%; nemesis 24–36%; random 27–37%; baseline 60%. As expected, DR wins on its own training distribution.
+- **CVaR10 on hand-written:** box −0.49 to −0.51 (best); nemesis_s0 −0.50; DR −0.53 to −0.59; nemesis_s1 −0.73 (worst trained).
+- **Nominal progress:** 4.4–4.6 m for every policy. Nobody became timid.
+- **Cross-play** (fall rate under each arm's plausible+feasible failures):
+  - DR policies: 10–13% on box failures, 0–4% on nemesis, 25–31% on shuffled.
+  - Nemesis-trained policies: 56–65% on box failures, so a narrow training distribution.
+- **Discovery (strict):** shuffled 9.3 modes (20–24 failures); nemesis 6.3 (6–10); box 0; random 0. Box and random failures stack about 7 perturbation families each.
+- **CORRECTION** to the H-E entry above: I wrote that Nemesis "matches hand-tuned DR without the tuning". On the full evaluation it does not quite (7.7% vs 5.6%; seed ranges 5.2–10.8 vs 5.4–6.1). The accurate claim: **given only the physical envelope, every adversarial-training arm (5.6–7.7%) beats DR over that same envelope (13.4%) by about 2×.** Only hand-tuning DR's width closes the gap. Among adversaries, flat CMA and random programs trained slightly better policies than Nemesis.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
