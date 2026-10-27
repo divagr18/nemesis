@@ -233,7 +233,7 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         state.info["nemesis_hist"] = hist
         return state.replace(obs=obs)
 
-    def step(self, state, action):
+    def step(self, state, action, restart: bool = True):
         sp = self.spec
         info = state.info
         theta, dr, t = info["nemesis_theta"], info["nemesis_dr"], info["nemesis_t"]
@@ -279,7 +279,11 @@ class NemesisWrapper(pg_wrapper.Wrapper):
 
         # Episode end, including Brax's time-limit truncation (which this wrapper cannot see as
         # `done`): draw the next episode's θ and DR, and reset the clock, latency and history.
+        # restart=False (evaluation) keeps the scenario running past the end, so a recording that
+        # continues after a fall does not see the stairs, ice or pushes re-anchor from t=0.
         end = done | (t + 1 >= self._episode_length)
+        if not restart:
+            end = jp.zeros_like(end)
         new = end & state.info["nemesis_resample"]
         state.info.update(
             command=cmd,

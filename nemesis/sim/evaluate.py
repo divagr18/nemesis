@@ -25,9 +25,10 @@ TRACK_TOL = 0.4  # m/s: mean planar velocity error above this counts as not doin
 def ended(state):
     """The episode is over: a fall by the wrapper's strict check, or the raw env's own termination
     (G1 also ends on foot-foot / foot-shin contact). Training ends episodes on both; the evaluator
-    counts both as falls, and NemesisWrapper restarts its scenario clock on both, so carrying on
-    would replay the scenario from t=0. For Go1 the env's termination (upvector z < 0) implies
-    the wrapper's tilt check, so its results are unchanged."""
+    counts both as falls. For Go1 the env's termination (upvector z < 0) implies the wrapper's
+    tilt check, so its results are unchanged. Recordings step with restart=False, so the scenario
+    keeps running past the end and a replay that continues after the fall stays consistent (the
+    stairs, ice and pushes don't re-anchor); scoring runs keep the original graph, bit for bit."""
     return (state.metrics["nemesis_fall"] > 0) | (state.done > 0)
 
 
@@ -57,7 +58,7 @@ class Evaluator:
             s, alive, margin, err_sum, n_alive, t_fall, fall_g, q_last = carry
             action, _ = policy(s.obs, jax.random.fold_in(rng, t))
             cmd = s.info["command"]
-            s = env.step(s, action)
+            s = env.step(s, action, restart=not record)  # scoring runs keep the exact graph
             fell = ended(s)
             h, up = s.data.qpos[2], s.data.xmat[trunk][2, 2]
             m = jp.minimum((h - env.min_height) / 0.1, (up - env.min_up_z) / (1 - env.min_up_z))

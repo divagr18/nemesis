@@ -675,6 +675,31 @@ P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain h
   `test_robots` pins the v3 hash (`70ed6a77…`; v2 was `fef3fefa…`).
 - **Full suite on the PC's CPU:** 109 passed, plus the pre-existing failure (`test_robots.py::test_humanoid_wrapper`, pelvis 0.077 < 0.1).
 
+## Oct 27: public hosting, snappy attacks, replays after a fall
+
+**Hosting.** https://nemesis.divagr.com runs on its own always-on g4dn.xlarge (one T4, us-east-1), deployed with `scripts/deploy.sh`. It is not hosted on the PC.
+
+**Timing on the T4:**
+- **Attack:** about 8–10 s end to end, of which ~4 s is Wonder. The same attacks took 40–110 s on the PC. Most of that was rendering an mp4 the page never shows; it now renders in the background, and Spark and clip requests wait for it.
+- **Patch:** a full 20M-step Patch took 20.5 min: ~3 min first compile, 16 min training (~31 s per 1M steps), 4.5 min gate. That run was rejected.
+  - Patch now replays the attack after every 1M steps and streams each attempt to the page.
+  - It stops at the first attempt that falls on ≤ 2/16 seeds and still walks normally, after at least 2M steps.
+  - The budget is capped at 8M.
+  - One hard attack stayed at 50–88% falls through 8M steps; early stopping only helps attacks the robot can learn quickly.
+
+**Bug: replays after a fall showed the robot walking through the stairs.**
+- **Symptom:** a visitor's duel showed the robot inside 3 × 12 cm steps.
+- **The physics was right.** Feet hit the riser (MJX reports the foot–box contacts), the robot stalls at 1.3–1.5 m and trips.
+- **Cause:** at the end of an episode the wrapper restarts its scenario clock, so the stairs, ice and pushes re-anchor 1.5 m ahead of the robot. The evaluator kept recording ~1.5 s past the fall, so the replay showed a different, restarted scenario.
+- **Fix:** `NemesisWrapper.step(..., restart=False)`, used only by recording runs (`record=True`). Scoring runs keep their exact compiled graph.
+  - Every metric is computed only up to the fall, so scores can't change.
+  - 88 physics tests pass.
+
+**Finding: GPU MJX evaluation is not deterministic across processes.**
+- Running the same θ and seeds twice with the *unchanged* code on the T4 gave different fall times for 4 of 8 seeds on a slippery-stairs scenario. Every seed fell in every run.
+- Bit-identity checks therefore only hold on CPU (where the audit and the course work verified them).
+- Fall rates are stable; single-seed timings are not.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
@@ -689,3 +714,4 @@ P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain h
 | Oct 27 | DR arm and held-out suites use scaled envelopes (w=0.25, 0.5), not the full envelope | The full envelope is ~100% unsurvivable, so it would make a strawman baseline |
 | Oct 27 | Public page hosted only after filming (~Oct 30–31), on a g6.xlarge (L4, ~$0.80/h) at a divagr.com subdomain until the community vote closes on Nov 16. Filming uses an L40S so Patch takes ~1 min on camera. | User's call: saves cost, and nobody visits before the video is out. |
 | Oct 28 | The course reuses Go1's 8 terrain boxes (a ramp borrows the last two or three); the second ice patch is stored as `ice2_slip` = 1 − μ | Two extra collidable boxes changed MJX's float rounding for every stairs rollout (old stairs θ no longer bit-identical); an off-marker μ slot would have no plausibility magnitude |
+| Oct 27 | Public page on an always-on g4dn.xlarge (T4) at nemesis.divagr.com from today, not the PC; Patch stops early and is capped at 8M steps | User: the PC isn't dependable, and the site must feel snappy. Attacks take 8–10 s on a T4; a 20M Patch took 20 min |
