@@ -4,6 +4,7 @@ GET /api/attack/<id>   the public record of one attack (no θ)
 GET /a/<id>            the web app's index.html with Open Graph / Twitter tags for link previews
 GET /og/<id>.png       1200×630 preview card: a frame at the moment of the fall, the sentence, the outcome
 GET /v/<id>.mp4        1080×1920 clip: the sentence on top, the original robot above the live version
+GET /g/<id>.gif        a looping GIF of the fall (both robots, labelled) to attach to an X post
 
 Cards and clips are rendered once and cached under <serve dir>/share/.
 
@@ -30,6 +31,8 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 router = APIRouter()
 
 PUBLIC_URL = os.environ.get("NEMESIS_PUBLIC_URL", "https://nemesis.divagr.com").rstrip("/")
+X_HANDLE = os.environ.get("NEMESIS_X_HANDLE", "divagr1925").lstrip("@")  # credited in every X post
+X_LIMIT, X_URL = 280, 23  # X counts a link as 23 characters
 INDEX = Path("web/dist/index.html")
 RENDER_REV = "1"  # bump to re-render every cached card and clip after a design change
 ID = re.compile(r"[0-9a-f]{6,32}")
@@ -112,6 +115,15 @@ def _truncate(s: str, n: int) -> str:
     return cut.rstrip(" ,.;:") + "…"
 
 
+def post_text(r: dict, fixed_in: str | None) -> str:
+    """The X post (the link is added by the intent): the sentence, what happened, and what Nemesis is."""
+    about = (f"Nemesis by @{X_HANDLE}: describe a situation, a simulated robot faces it, and if it falls, "
+             f"it learns. Built on @AIatMeta's Muse models.\n\nTry yours:")
+    happened = _plain(outcome(r, fixed_in))
+    room = X_LIMIT - X_URL - 1 - len(about) - len(happened) - 5  # quotes and line breaks
+    return f"“{_truncate(_sentence(r), max(24, room))}”\n{happened}\n\n{about}"
+
+
 # ---- public record ---------------------------------------------------------------------------------
 
 def public(r: dict) -> dict:
@@ -121,8 +133,9 @@ def public(r: dict) -> dict:
     out["status"] = A.versions.status().get(r["id"], {}) if r.get("robot", "go1") == "go1" else {}
     out["fixed_in"] = _fixed_in(r)
     out["outcome"] = _plain(outcome(r, out["fixed_in"]))
+    out["post"] = post_text(r, out["fixed_in"])
     out["share"] = {"page": f"{PUBLIC_URL}/a/{r['id']}", "image": f"{PUBLIC_URL}/og/{r['id']}.png",
-                    "video": f"/v/{r['id']}.mp4"}
+                    "video": f"/v/{r['id']}.mp4", "gif": f"/g/{r['id']}.gif"}
     return out
 
 
@@ -567,3 +580,60 @@ def vertical_clip(attack_id: str):
     return FileResponse(path, media_type="video/mp4",
                         headers={"Cache-Control": "public, max-age=86400",
                                  "Content-Disposition": f'inline; filename="nemesis-{attack_id}.mp4"'})
+
+
+# ---- looping GIF of the fall (for X posts) -----------------------------------------------------------
+
+GIF_W, GIF_FPS, GIF_BEFORE, GIF_AFTER = 720, 15, 2.2, 1.4  # seconds around the fall
+
+
+def _gif_labels(r: dict, w: int, h: int):
+    """A transparent layer with the two robots' labels, one per half of the tiled clip."""
+    from PIL import Image, ImageDraw
+
+    top = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(top)
+    lf = font(17, "Medium")
+    for (name, fell), x in zip(_labels(r), (0, w // 2)):
+        _pill(d, (x + 12, 12), name, fell, lf, pad=(10, 6), dot=7)
+    return top
+
+
+def gif(r: dict, clip: Path, path: Path):
+    w, h, _ = _probe(clip)
+    gh = round(GIF_W * h / w / 2) * 2
+    t = _fall_moment(r) - 0.45  # the later fall
+    start = max(0.0, t - GIF_BEFORE)
+    with _draw:
+        top = _gif_labels(r, GIF_W, gh)
+    work = path.with_name(f".{path.stem}.{os.getpid()}.{threading.get_ident()}")
+    work.mkdir(exist_ok=True)
+    try:
+        top.save(work / "labels.png")
+        graph = (f"[0:v]fps={GIF_FPS},scale={GIF_W}:{gh}:flags=lanczos[v];[v][1:v]overlay=0:0,split[a][b];"
+                 f"[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4")
+        cmd = [_ffmpeg(), "-v", "error", "-y", "-ss", f"{start:.2f}", "-t", f"{GIF_BEFORE + GIF_AFTER:.2f}",
+               "-i", str(clip), "-i", str(work / "labels.png"), "-filter_complex", graph, "-loop", "0", "-f", "gif"]
+
+        def write(tmp: Path):
+            res = subprocess.run([*cmd, str(tmp)], capture_output=True, text=True, timeout=300, check=False)
+            if res.returncode != 0 or not tmp.exists():
+                raise RuntimeError(f"ffmpeg failed: {res.stderr[-400:]}")
+        _save_atomic(write, path)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+@router.get("/g/{attack_id}.gif")
+def fall_gif(attack_id: str):
+    r = _attack(attack_id)
+    path = _cache_dir() / f"{attack_id}.fall{RENDER_REV}.gif"
+    with _lock(f"gif:{attack_id}"):
+        if not path.exists():
+            clip = _clip(r)
+            if clip is None:
+                raise HTTPException(404, "This clip isn't ready (or couldn't be rendered).")
+            gif(r, clip, path)
+    return FileResponse(path, media_type="image/gif",
+                        headers={"Cache-Control": "public, max-age=86400",
+                                 "Content-Disposition": f'inline; filename="nemesis-{attack_id}.gif"'})
