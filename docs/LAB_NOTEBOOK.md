@@ -700,6 +700,39 @@ P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain h
 - Bit-identity checks therefore only hold on CPU (where the audit and the course work verified them).
 - Fall rates are stable; single-seed timings are not.
 
+## Oct 27 (late): what counts as a fall; Places and Autopilot on the public site
+
+**Bug: the humanoid read "fell" while standing.**
+- **Symptom:** a visitor's "wet tiles and a 3 kg backpack" showed FELL 0.62 s on an upright G1.
+- **Cause:** the evaluator counted the raw env's own termination as a fall (audit fix #5). G1's termination includes foot-foot and foot-shin contact, a training shortcut.
+- **History:** #5 existed because carrying on past that termination restarted the wrapper's scenario clock, so pushes re-fired and the ice moved.
+- **Fix:** the evaluator now steps with `restart=False` (the scenario keeps running), and `ended()` is the strict fall check only.
+- **Go1 is unchanged:** its termination (upvector z < 0) implies the tilt check. The audit test now asserts the new rule. 55 physics/robot tests pass (laptop CPU).
+- On the box CPU, the visitor's situation gave 0 falls in 32 seeds under both old and new code. The false fall came from a GPU run, where results vary between processes.
+
+**Places, end to end on the T4** ("a winter train station with icy platforms, steps and busy crowds"):
+- Wonder wrote 10 situations; all ran in 113 s, about 5 s each after the first.
+- Spark labelled the worst three.
+- One learnable failure: "Station Stair Climb", falling 100% on v9.
+- **Train it for this place:**
+  - attempts 100% → 100% → 69% → 19% → 6% falls; early stop at about 4.6M steps;
+  - the gate accepted it as v11;
+  - the grid re-graded on v11: the stair climb went 100% → 0%, and "Loaded Steps Weak Motor" (the reference robot also fell on it) went 100% → 0% too.
+- Total: 695 s.
+
+**Autopilot samples, 5 tries, on the public robot:**
+
+| Sample | Result |
+|---|---|
+| "Tripping on a step or curb" | Falls on tries 4–5 (88%, 72%); the retrain was rejected by the gate |
+| "Slipping while turning" (first run) | Found a fall and retrained: v9 |
+| "Slipping while turning" (rerun on v9) | 0 falls in 5 tries: the robot had learned it |
+| "A weak knee on wet tiles" | A 50% fall on try 3; the retrain was accepted |
+| "Tripping on a curb at a brisk walk" | Falls on tries 1–3 (75%, 56%, 91%); the retrain was rejected |
+
+- **Lesson:** fixed samples drift as the public robot learns. Autopilot is now told what the live robot was already retrained on (as quoted data), and the samples are "Find its weakest spot", "A weak knee on wet tiles" and "Tripping on a curb at a brisk walk".
+- In every run Muse opened with the 5-try notice.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
