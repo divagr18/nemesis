@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Composer from "../components/Composer";
+import Envelope from "../components/Envelope";
 import PatchPanel from "../components/PatchPanel";
 import Replay from "../components/Replay";
 import { api, pct, post, upload } from "../lib/api";
@@ -34,6 +35,7 @@ export default function Lab() {
   const [recent, setRecent] = useState<Attack[]>([]);
   const [board, setBoard] = useState<any[]>([]);
   const [prefill, setPrefill] = useState({ text: "", n: 0 });
+  const [showcase, setShowcase] = useState<any>(null);
   const [attempts, setAttempts] = useState<any[]>([]);
   const [attempt, setAttempt] = useState(0);
   const [cycling, setCycling] = useState(false);
@@ -48,6 +50,7 @@ export default function Lab() {
   useEffect(() => {
     api("/api/hall_of_fame?limit=9").then(setRecent).catch(() => {});
     api("/api/leaderboard?limit=5").then(setBoard).catch(() => {});
+    api("/api/showcase").then((s) => setShowcase(s?.trajs ? s : null)).catch(() => {});
   }, [tick]);
 
   const run = async (label: string, req: () => Promise<Attack>) => {
@@ -58,8 +61,9 @@ export default function Lab() {
   };
 
   const showing = attempts.length ? attempts[attempt] : null;
-  const stage = showing ? [showing] : after?.trajs || result?.trajs || recent[0]?.trajs;
-  const labels = showing ? [`attempt · ${showing.label}`] : after ? [`${after.parent}`, `${after.version}`] : result ? ["original", result.version] : null;
+  const stage = showing ? [showing] : after?.trajs || result?.trajs || showcase?.trajs || recent[0]?.trajs;
+  const labels = showing ? [`attempt · ${showing.label}`] : after ? [`${after.parent}`, `${after.version}`] : result ? ["original", result.version]
+    : showcase ? ["original", `trained · ${showcase.version}`] : null;
 
   return (
     <div>
@@ -109,6 +113,7 @@ export default function Lab() {
                   {after && <button onClick={() => setAttempts([])} className="ml-1 text-xs text-faint hover:text-mute">final comparison</button>}
                 </div>
               )}
+              {after && result && <Envelope attackId={result.id} versions={[versions?.versions[0]?.name || "v1", after.version]} />}
             </div>
           )}
         </section>

@@ -52,18 +52,56 @@ DATA:
 {data}"""
 
 
-def dominant_slot(theta: np.ndarray) -> str | None:
+def dominant_slots(theta: np.ndarray, k: int = 2) -> list[str]:
+    """The perturbed conditions ranked by how far they are from normal (relative to their range)."""
     from nemesis.adversary.cmaes import NOT_MAGNITUDES
 
-    best, name = 0.0, None
+    devs = []
     for s in C.SLOTS:
         if s.name in NOT_MAGNITUDES:
             continue
         sl = C.INDEX[s.name]
         dev = float((np.abs(theta[sl] - C.NEUTRAL[sl]) / C.SPAN[sl]).max())
-        if dev > best:
-            best, name = dev, s.name
-    return name
+        if dev > 1e-6:
+            devs.append((dev, s.name))
+    return [n for _, n in sorted(devs, reverse=True)[:k]]
+
+
+def dominant_slot(theta: np.ndarray) -> str | None:
+    top = dominant_slots(theta, 1)
+    return top[0] if top else None
+
+
+ENVELOPE_N = 11
+
+
+def _scalar(v: np.ndarray) -> float:
+    """One number for a condition that may be a vector (all feet, a 3-D force): its largest magnitude."""
+    v = np.atleast_1d(v)
+    return float(v[np.argmax(np.abs(v))]) if v.size > 1 and not np.allclose(v, v[0]) else float(v[0])
+
+
+def envelope(ev, params_by_version: dict, theta: np.ndarray) -> dict:
+    """Fall rate over a grid between normal and the attack's value for its two dominant conditions:
+    the robot's safety envelope around this situation, per version (16 seeds per cell)."""
+    slots = dominant_slots(theta, 2)
+    if not slots:
+        return {"error": "nothing perturbed"}
+    if len(slots) == 1:  # one condition: still a grid, second axis is a repeat
+        slots = slots * 2
+    fr = np.linspace(0.0, 1.0, ENVELOPE_N)
+    a, b = (C.INDEX[n] for n in slots)
+    cands = np.repeat(theta[None], ENVELOPE_N * ENVELOPE_N, 0)
+    for i, fa in enumerate(fr):
+        for j, fb in enumerate(fr):
+            c = cands[i * ENVELOPE_N + j]
+            c[a] = C.NEUTRAL[a] + fa * (theta[a] - C.NEUTRAL[a])
+            c[b] = C.NEUTRAL[b] + fb * (theta[b] - C.NEUTRAL[b])
+    axis = lambda sl: [round(_scalar(C.NEUTRAL[sl] + f * (theta[sl] - C.NEUTRAL[sl])), 3) for f in fr]  # noqa: E731
+    grids = {name: ev(p, cands, seeds=16, key=53)["fell"].mean(1).reshape(ENVELOPE_N, ENVELOPE_N).round(3).tolist()
+             for name, p in params_by_version.items()}
+    return {"x": {"condition": slots[0], "values": axis(a)}, "y": {"condition": slots[1], "values": axis(b)},
+            "grids": grids}
 
 
 def margin(ev, params, theta: np.ndarray, slot: str) -> dict:

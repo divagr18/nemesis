@@ -27,7 +27,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -125,7 +125,7 @@ def translate(text: str, limit: int = 500) -> Program:
     return Program.model_validate(data)
 
 
-def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, object]) -> dict:
+def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, object], contrast: bool = False) -> dict:
     """Runs one θ against two policies and renders them side by side on a shared seed (the first
     seed where the right-hand policy falls, so a break is shown when there is one)."""
     from nemesis.sim.overlays import overlays
@@ -138,6 +138,8 @@ def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, obje
     fell_r = res[right[0]]["fell"][0]
     fell_l = res[left[0]]["fell"][0]
     seed = int(np.flatnonzero(fell_r)[0]) if fell_r.any() else (int(np.flatnonzero(fell_l)[0]) if fell_l.any() else 0)
+    if contrast and (fell_l & ~fell_r).any():  # showcase: a seed where the left falls and the right holds
+        seed = int(np.flatnonzero(fell_l & ~fell_r)[0])
     recs = [ev(params, theta[None], seeds=np.array([seed]), key=key, record=True) for _, params in (left, right)]
     # End ~1.5 s after the later fall (no seconds of flailing on the floor); full length if either held.
     falls = [r["time_to_fall"][0, 0] / ev.env.dt for r in recs if r["fell"][0, 0]]
@@ -662,6 +664,57 @@ async def duel_patch(duel_id: str, request: Request):
     job = jobs.new("patch")
     jobs.spawn(job, _patch(job, attacks[:5]))
     return {"job": job.id, "attacks": len(attacks[:5])}
+
+
+# ---- Showcase: the original robot falls, the trained one holds -------------------------------------
+
+_showcase: dict = {}
+
+
+@app.get("/api/showcase")
+async def showcase():
+    """The hero's default replay: the most recent situation that knocks the original robot over but
+    that the live version now survives, both recorded on the same seed. Cached per live version."""
+    live = versions.live()["name"]
+    if live in _showcase:
+        return _showcase[live]
+    status = versions.status()
+    rows = [r for r in reversed(_attacks()) if r.get("broke_baseline") and r.get("survivable", True)
+            and status.get(r["id"], {}).get(live, 1.0) < 0.5]
+    if not rows:
+        return {}
+    r = rows[0]
+    async with _gpu:
+        s = sim()
+        out = await asyncio.to_thread(simulate, np.asarray(r["theta"], np.float32), ("original", s["original"]),
+                                      (live, s["live"]), True)
+    if out["fall_rates"]["original"] < 0.5 or out["fall_rates"][live] >= 0.5:
+        return {}
+    _showcase[live] = {"text": r["text"], "version": live, "trajs": out["trajs"], "fall_rates": out["fall_rates"]}
+    return _showcase[live]
+
+
+# ---- Safety envelope ---------------------------------------------------------------------------
+
+_envelopes: dict = {}
+
+
+@app.get("/api/envelope")
+async def get_envelope(attack_id: str, which: str = Query("", alias="versions")):
+    """Fall-rate grid over the attack's two dominant conditions, for the given versions (default: v1 and live)."""
+    from server import report as R
+
+    attack = _find(attack_id)
+    names = [v for v in which.split(",") if v] or [versions.all()[0]["name"], versions.live()["name"]]
+    known = {v["name"]: v for v in versions.all()}
+    names = [n for n in dict.fromkeys(names) if n in known]
+    key = (attack_id, tuple(names))
+    if key not in _envelopes:
+        async with _gpu:
+            s = sim()
+            params = {n: s["load"](known[n]["dir"]) for n in names}
+            _envelopes[key] = await asyncio.to_thread(R.envelope, s["ev"], params, np.asarray(attack["theta"], np.float32))
+    return _envelopes[key]
 
 
 # ---- Red-team report ---------------------------------------------------------------------------
