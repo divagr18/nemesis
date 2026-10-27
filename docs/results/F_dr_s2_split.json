@@ -1,0 +1,19 @@
+{
+ "train": [
+  "dr2_nemesis_s2/single_rear_foot_grip_loss_in_turn",
+  "dr2_nemesis_s0/diagonal_weakness_yaw_reversal_push",
+  "dr2_nemesis_s1/latency_noise_high_speed_yaw_reversal",
+  "dr2_nemesis_s0/all_calf_wear_max_payload_downhill_braking",
+  "dr2_nemesis_s1/ice_patch_during_sustained_yaw",
+  "dr2_nemesis_s2/commanded_stop_on_ice_patch"
+ ],
+ "held_out": [
+  "dr2_nemesis_s0/ice_patch_braking_reversal",
+  "dr2_nemesis_s0/velocity_bias_overspeed_ice_stop",
+  "dr2_nemesis_s1/rear_calf_weakness_uphill_rear_payload",
+  "dr2_nemesis_s2/underestimated_velocity_into_ice",
+  "dr2_nemesis_s2/downhill_front_braking_weak_calves",
+  "dr2_nemesis_s2/weak_rear_calves_uphill_loaded",
+  "dr2_nemesis_s0/ice_patch_lateral_yaw_slip"
+ ]
+}

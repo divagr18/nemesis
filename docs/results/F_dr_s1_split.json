@@ -1,0 +1,16 @@
+{
+ "train": [
+  "dr_nemesis_s1/asymmetric_rear_friction_spin",
+  "dr_nemesis_s2/ice_patch_during_yaw",
+  "dr_nemesis_s1/ice_patch_during_yaw_turn",
+  "dr_nemesis_s2/front_buckle_payload_ice_sharpened",
+  "dr_nemesis_s1/front_buckle_downhill_forward_payload"
+ ],
+ "held_out": [
+  "dr_nemesis_s1/lateral_walk_onto_ice",
+  "dr_nemesis_s2/single_rear_foot_grip_loss_loaded_turn",
+  "dr_nemesis_s0/ice_patch_mid_turn",
+  "dr_nemesis_s2/braking_on_ice_velocity_bias",
+  "dr_nemesis_s0/weak_rear_uphill_payload"
+ ]
+}

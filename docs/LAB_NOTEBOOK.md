@@ -329,6 +329,39 @@ Evaluated on the PC's 4060 with 8 seeds per scenario. Policies: baseline, dr s1/
 - **Discovery (strict):** shuffled 9.3 modes (20–24 failures); nemesis 6.3 (6–10); box 0; random 0. Box and random failures stack about 7 perturbation families each.
 - **CORRECTION** to the H-E entry above: I wrote that Nemesis "matches hand-tuned DR without the tuning". On the full evaluation it does not quite (7.7% vs 5.6%; seed ranges 5.2–10.8 vs 5.4–6.1). The accurate claim: **given only the physical envelope, every adversarial-training arm (5.6–7.7%) beats DR over that same envelope (13.4%) by about 2×.** Only hand-tuning DR's width closes the gap. Among adversaries, flat CMA and random programs trained slightly better policies than Nemesis.
 
+## Oct 27: FINAL pre-registered wide sweep (A–F), all runs complete
+
+Tables: `docs/results/wide.md` and `wide.json`. F reports: `docs/results/F_*`. Pre-registration: `docs/PREREGISTRATION.md` (commit `1782839`). The first `analyze_wide.py` run used a stale copy of `runs/` on the PC: 6 runs had no `budget.json` there, which left "n/a" cells and single seeds. I re-synced everything (all 67 A/C/D runs have `budget.json` locally) and re-ran. The numbers below come from the complete run.
+
+| Hypothesis | Verdict | Key numbers |
+|---|---|---|
+| H-A: Nemesis's advantage grows on hardened targets | **NOT SUPPORTED** | Strict failures, base / DR / nem target: nemesis 6.0 / 1.3 / 2.3; shuffled 8.7 / 4.7 / 7.3; box and random 0 on every target |
+| H-B: Nemesis leads at small budgets | **NOT SUPPORTED** | DR target at 2M steps: shuffled 2.3, nemesis 0.0. Nemesis's first strict failure arrives only by 10M |
+| H-C: Nemesis is robust to a bigger search space | **SUPPORTED** | Small → full space: box 10.5 → 0 (−100%); shuffled 10.5 → 8.5 (−19%); nemesis 5.5 → 6.5 (+18%); random 0 → 0 |
+| H-D1: Spark feedback helps | INCONCLUSIVE | full 6.5 / 1.0 vs no-Spark 6.0 / 1.0 (base / DR target), within seed range |
+| H-D2: archive history helps | **NOT SUPPORTED** | Without history: 7.5 / 1.5 (slightly *more*) |
+| H-D3: Glimmer ≥ 50% of Wonder | **SUPPORTED** | Glimmer 30B Q4, self-hosted: 10.0 [5, 15] / 1.0 vs Wonder 6.5 / 1.0. Glimmer matched or beat Wonder (within seed range) |
+| H-E: DR is sensitive to envelope width | **SUPPORTED** | Hand + realistic fall rate: w=0.25 10.1%, w=0.5 5.9%, w=1.0 12.7%. Both off-widths lie outside the w=0.5 seed range |
+| H-F: Nemesis repairs DR's residual failures better than more DR | **NOT SUPPORTED** | Held-out residual falls: repair 66.2 / 58.9 vs continued DR 53.7 / 62.5 (dr_s1 / dr_s2). Gauntlet: repair 8.2 / 6.4% vs 5.2 / 6.0%. Held-out sets are only 5–7 failures, so this is underpowered |
+
+Notes:
+- **E reproducibility.** E was evaluated twice with the same key (2026). w=0.5 gave 5.7% then 5.9%, w=0.25 10.4% then 10.1%. That is GPU nondeterminism of about ±0.3 pp, far below the effect size.
+- **Random search finds 0 strict failures in the *small* space too.** Its failures always stack many families, since it perturbs all allowed slots at once. So "random finds nothing plausible" is a property of joint-uniform sampling, not of dimension.
+
+### What the whole study says (main experiment + A–F)
+
+1. **The attack-program DSL is what makes plausible failures findable.**
+   - Every arm that searches *programs* finds strict failures: random programs (shuffled) and Wonder's programs.
+   - Every arm that searches the *flat θ box* finds none in the full space: CMA-ES over all slots, and uniform random.
+   - Flat CMA only works when a human has already shrunk the space to 3 families (H-C).
+2. **The LLM is not a better searcher than random programs.** Shuffled beats Wonder on raw strict-failure count on every target and at every budget. Wonder's value is that each failure arrives with a physical hypothesis ("the trot relies on rear-foot grip during yaw reversal"), and that it translates plain English into programs (the attack page). That is explanation and interface, not search efficiency.
+3. **For training, adversarial programs ≈ well-tuned DR > mis-tuned DR.**
+   - Given only the physical envelope, every adversarial arm (5.6–7.7%) beats DR over the full envelope (12.7–13.4%) by about 2×.
+   - DR needs its width hand-tuned to w=0.5 to reach 5.6–5.9%.
+   - Among adversarial arms, Nemesis training is slightly worse (7.7%) than box or shuffled (5.6–6.0%). It is also narrower: weak on box-found failures in cross-play (56–65%).
+4. **Open weights are enough.** The self-hosted Glimmer 30B (Q4, one A10G) proposes programs as productive as Wonder's. The adversary does not need a frontier API.
+5. **Not shown:** that Spark's video feedback or the archive history improves search. Both are within noise or slightly negative. Spark's role is labelling, not steering.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|

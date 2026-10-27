@@ -10,7 +10,14 @@ Nemesis finds the physical conditions that make a walking robot fall, explains e
 4. The robot is **fine-tuned** on a curated bank of these counterexamples. The bank is weighted by learnability, infeasible items are quarantined, and failure families are balanced.
 5. Repeat.
 
-On a Unitree Go1 in MuJoCo MJX, one round of this loop cut falls on held-out hand-written attacks from **27.5% → 13.5%**, and on a domain-randomization-style distribution it never trained on from **57.9% → 38.4%**. The robot did not become timid: on flat ground it walks as far as before (4.5 → 4.6 m in 5 s). See [Results](#results).
+On a Unitree Go1 in MuJoCo MJX, one round of this loop cut falls on held-out hand-written attacks from **27.5% → 13.5%**, and on a domain-randomization-style distribution it never trained on from **57.9% → 38.4%**. The robot did not become timid: on flat ground it walks as far as before (4.5 → 4.6 m in 5 s).
+
+We then ran a pre-registered study of where this beats plain domain randomization and random search, and where it doesn't. The short version:
+- **Attack programs are what make plausible failures findable.** Searching the raw parameter box finds none.
+- **Random programs find more failures than the LLM.** The LLM adds the *why*.
+- **Adversarial training needs no envelope tuning, and matches DR only when DR is hand-tuned.**
+
+See [Results](#results).
 
 > Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), *Push the Frontier* theme. Everything in this repo was written during the event; see [What was built during the hackathon](#what-was-built-during-the-hackathon).
 
@@ -74,8 +81,6 @@ The robot then learns from exactly those failures.
 
 ## Results
 
-*Main experiment: 5 arms × 3 seeds × 3 rounds, matched env-step budget. Numbers are filled in from [`runs/analysis/summary.md`](runs/analysis/summary.md) once the sweep completes.*
-
 **Single-round validation** (`baseline_v2` → `ft_v3`, 16 seeds per scenario, same seeds before and after):
 
 | Suite | Falls before | Falls after |
@@ -89,12 +94,72 @@ The robot then learns from exactly those failures.
 
 We compared five arms at a matched env-step budget: DR, random search, full-union CMA-ES, blind random programs, and Nemesis. That's 3 seeds × 3 rounds each, evaluated on a gauntlet whose hash was committed before any result. Then we **pre-registered** six follow-up experiments mapping where an LLM red team helps and where it doesn't ([`docs/PREREGISTRATION.md`](docs/PREREGISTRATION.md)).
 
-**What we found so far:**
-- DR over a well-chosen envelope is as strong as, or stronger than, adversarial fine-tuning as a *training* method at this budget.
-- Wonder's hypotheses are not more search-efficient than structured random programs at *finding* plausible failures.
-- Nemesis's distinctive outputs are *explanations*: named, physically reasoned hypotheses, minimal counterexamples, and Spark's video diagnoses. Plus a plain-language interface, and a red team that also works on DR-trained policies.
+The arms:
+- **dr**: uniform domain randomization over the envelope.
+- **random**: uniform random θ.
+- **box**: CMA-ES over every θ slot.
+- **shuffled**: random attack programs from the same DSL.
+- **nemesis**: Wonder's programs.
 
-Full tables: [`runs/analysis/summary.md`](runs/analysis/summary.md) and [`runs/analysis/wide.md`](runs/analysis/wide.md) *(numbers are filled in as the pre-registered experiments complete)*. The lab notebook records every bug, incident and decision along the way: [`docs/LAB_NOTEBOOK.md`](docs/LAB_NOTEBOOK.md).
+**Training: fall rate on the locked gauntlet** (52 hand-written and realistic scenarios × 16 seeds; mean over 3 seeds):
+
+| Policy | Fall rate |
+|---|---|
+| Baseline (no robustness training) | 17.7% |
+| DR, envelope width hand-tuned (w=0.5) | **5.6–5.9%** |
+| Box CMA-ES adversary | **5.6%** |
+| Random-program adversary | 6.0% |
+| Uniform-random adversary | 7.1% |
+| Nemesis | 7.7% |
+| DR, width too narrow (w=0.25) | 10.1% |
+| DR over the full physical envelope (w=1.0) | 12.7% |
+
+Every policy still walks 4.4–4.6 m on flat ground.
+
+**Finding plausible failures** (strict: ≤ 3 perturbation families, small total deviation, fails 50–95% of seeds):
+
+| Adversary | Untrained | DR-trained | Nemesis-trained | Small space → full space |
+|---|---|---|---|---|
+| Random programs | **8.7** | **4.7** | **7.3** | 10.5 → 8.5 |
+| Nemesis (Wonder) | 6.0 | 1.3 | 2.3 | 5.5 → 6.5 |
+| Box CMA-ES | 0 | 0 | 0 | **10.5 → 0** |
+| Uniform random | 0 | 0 | 0 | 0 → 0 |
+
+The first three columns are the target policy.
+
+**What this means:**
+1. **The program DSL is the contribution that makes plausible failures findable.**
+   - Searching the raw 80-dimensional parameter box finds nothing plausible unless a human first shrinks it to 3 perturbation families.
+   - Programs, whether random or LLM-written, find realistic failures even against hardened policies.
+2. **The LLM is not a better *searcher* than random programs.** Random programs find more failures at every budget. What Wonder adds is the *why*:
+   - each failure comes with a physical hypothesis, a minimal counterexample, and Spark's video diagnosis;
+   - anyone can attack the robot in plain English.
+3. **Adversarial training needs no envelope tuning.** Given only the physical envelope, every adversarial arm beats DR over that envelope by about 2×. DR catches up only when a human tunes its width, and a mis-tuned width doubles its fall rate. Among the adversaries, Nemesis-trained policies are slightly worse and narrower than the box and random-program arms.
+4. **Open weights suffice.** Muse Glimmer 30B (4-bit, one 24 GB GPU) proposes attack programs as productive as Wonder's: 10.0 vs 6.5 strict failures on the untrained target, within seed range.
+5. **Not supported:**
+   - Spark's feedback steering search (inconclusive).
+   - Archive history helping (no).
+   - Nemesis repairing a DR policy's residual failures better than more DR (no, though only 5–7 held-out failures).
+
+Pre-registered verdicts:
+
+| Hypothesis | Verdict |
+|---|---|
+| H-A: edge on hardened targets | ✗ |
+| H-B: edge at small budgets | ✗ |
+| H-C: robust to a larger search space | ✓ |
+| H-D1: Spark feedback helps | ? |
+| H-D2: history helps | ✗ |
+| H-D3: Glimmer ≥ 50% of Wonder | ✓ |
+| H-E: DR is width-sensitive | ✓ |
+| H-F: residual repair | ✗ |
+
+Full tables:
+- [`docs/results/summary.md`](docs/results/summary.md): main experiment, including cross-play and CVaR
+- [`docs/results/wide.md`](docs/results/wide.md): pre-registered A–E
+- `docs/results/F_*`: F
+
+The lab notebook records every bug, incident and decision along the way: [`docs/LAB_NOTEBOOK.md`](docs/LAB_NOTEBOOK.md).
 
 ## What was built during the hackathon
 
