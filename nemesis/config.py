@@ -16,8 +16,7 @@ jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
 
 META_BASE_URL = os.environ.get("MODEL_API_BASE_URL", "https://api.meta.ai/v1")
 WONDER = "muse-wonder-1.0"
-SPARK = "muse-spark-1.3"
-SPARK_CHEAP = "muse-spark-1.3-contributor"
+SPARK = "muse-spark-1.3-contributor"  # the contributor tier, for every Spark call (user's call, Oct 27)
 SPARK_AUDIO = "muse-spark-1.2"
 TRANSCRIBE = "muse-voice-transcribe-1.0"
 SAM = "sam-3.1"
