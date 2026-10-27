@@ -1,0 +1,77 @@
+import { ArrowUp, Camera, Loader2, Mic, Square } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { toWav } from "../lib/api";
+
+type Props = {
+  onText: (text: string) => void;
+  onVoice?: (wav: Blob) => void;
+  onFile?: (file: File) => void;
+  busy?: boolean;
+  examples?: string[];
+  accent?: string; // tailwind bg class for the send button
+};
+
+/** One input for an attack: type it, say it, or (optionally) show a photo of a place. */
+export default function Composer({ onText, onVoice, onFile, busy, examples = [], accent = "bg-ember" }: Props) {
+  const [text, setText] = useState("");
+  const [hint, setHint] = useState(0);
+  const [rec, setRec] = useState<MediaRecorder | null>(null);
+  const area = useRef<HTMLTextAreaElement>(null);
+  const file = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (examples.length < 2) return;
+    const t = setInterval(() => setHint((h) => (h + 1) % examples.length), 3200);
+    return () => clearInterval(t);
+  }, [examples.length]);
+
+  useEffect(() => {  // grow with the text
+    const a = area.current; if (!a) return;
+    a.style.height = "0px"; a.style.height = `${Math.min(a.scrollHeight, 200)}px`;
+  }, [text]);
+
+  const submit = () => { const t = text.trim(); if (t.length >= 3 && !busy) onText(t); };
+
+  const mic = async () => {
+    if (rec) { rec.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const r = new MediaRecorder(stream), chunks: Blob[] = [];
+      r.ondataavailable = (e) => chunks.push(e.data);
+      r.onstop = async () => { stream.getTracks().forEach((t) => t.stop()); setRec(null); onVoice?.(await toWav(new Blob(chunks))); };
+      r.start(); setRec(r);
+    } catch { /* no microphone */ }
+  };
+
+  return (
+    <div className={`rounded-2xl border bg-panel transition-colors ${rec ? "border-ember/60" : "border-line focus-within:border-white/25"}`}>
+      <textarea ref={area} rows={1} value={text} disabled={busy}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+        placeholder={rec ? "Listening… tap stop when you're done" : examples[hint] || "Describe an attack"}
+        className="block w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[17px] leading-relaxed text-ink outline-none placeholder:text-faint disabled:opacity-60" />
+      <div className="flex items-center gap-1 px-3 pb-3">
+        {onVoice && (
+          <button onClick={mic} disabled={busy} title={rec ? "Stop" : "Say it"}
+            className={`grid size-9 place-items-center rounded-full transition-colors ${rec ? "bg-ember/15 text-ember" : "text-mute hover:bg-white/5 hover:text-ink"}`}>
+            {rec ? <Square size={14} fill="currentColor" /> : <Mic size={17} strokeWidth={1.6} />}
+          </button>
+        )}
+        {onFile && (
+          <>
+            <button onClick={() => file.current?.click()} disabled={busy} title="A photo of a real place"
+              className="grid size-9 place-items-center rounded-full text-mute transition-colors hover:bg-white/5 hover:text-ink">
+              <Camera size={17} strokeWidth={1.6} />
+            </button>
+            <input ref={file} type="file" accept="image/*,video/*" hidden
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
+          </>
+        )}
+        <button onClick={submit} disabled={busy || text.trim().length < 3}
+          className={`ml-auto grid size-9 place-items-center rounded-full text-black transition-all disabled:opacity-25 ${accent}`}>
+          {busy ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} strokeWidth={2} />}
+        </button>
+      </div>
+    </div>
+  );
+}

@@ -31,6 +31,7 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from nemesis import config
@@ -708,5 +709,17 @@ def clip(name: str):
     return FileResponse(path, media_type="video/mp4")
 
 
+class SPA(StaticFiles):
+    """The built web app (web/dist); unknown paths get index.html so client-side routes work."""
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as e:
+            if e.status_code != 404 or "." in Path(path).name:
+                raise
+            return await super().get_response("index.html", scope)
+
+
 if Path("web/dist").exists():
-    app.mount("/", StaticFiles(directory="web/dist", html=True), name="web")
+    app.mount("/", SPA(directory="web/dist", html=True), name="web")

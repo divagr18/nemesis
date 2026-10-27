@@ -41,7 +41,7 @@ open_web() {
 
 push_code() {  # $1 ip
   (cd "$ROOT" && tar --exclude=.git --exclude=runs --exclude=__pycache__ --exclude=.pytest_cache \
-    --exclude='.venv*' -czf - .) | "${SSH[@]}" "ubuntu@$1" 'mkdir -p ~/muse && tar -xzf - -C ~/muse'
+    --exclude='.venv*' --exclude=node_modules -czf - .) | "${SSH[@]}" "ubuntu@$1" 'mkdir -p ~/muse && tar -xzf - -C ~/muse'
 }
 
 push_runs() {  # $1 ip; local runs/ live on the PC, so stream them from there

@@ -193,7 +193,7 @@ The service ([`server/`](server)) is a FastAPI app:
 - `report.py`: red-team reports.
 - `jobs.py`: background jobs, streamed to the page as resumable server-sent events.
 
-The page ([`web/dist/`](web/dist)) is build-free ES modules. The 3D replay is three.js playing back poses exported from the simulator (`nemesis/sim/export.py`).
+The web app ([`web/`](web)) is Vite + React + Tailwind: Break it, You vs Muse, Agent and Report. It builds to `web/dist`, which the server serves (`cd web && npm install && npm run build`). The 3D replay is three.js playing back poses exported from the simulator (`nemesis/sim/export.py`).
 
 ## Fully open-weight mode
 

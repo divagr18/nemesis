@@ -11,7 +11,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 
-const COL = { bg: 0x0b0d12, crimson: 0xe11d48, cyan: 0x22d3ee, ice: 0x7cc4ff, robot: 0xb4bbc8, floor: 0x0f1218 };
+const COL = { bg: 0x0b0d12, crimson: 0xff5b35, cyan: 0x22d3ee, ice: 0x7cc4ff, robot: 0xb4bbc8, floor: 0x0f1218 };
 const DTYPES = { float32: Float32Array, uint16: Uint16Array, uint32: Uint32Array, int16: Int16Array, uint8: Uint8Array };
 const Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0);
 const assetCache = new Map();
@@ -43,38 +43,39 @@ const CSS = `
 .nr-stage>canvas:active{cursor:grabbing}
 .nr-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .nr-flash{position:absolute;inset:0;pointer-events:none;opacity:0;
-  background:radial-gradient(ellipse at center,rgba(225,29,72,0) 35%,rgba(225,29,72,.55) 100%)}
-.nr-msg{position:absolute;inset:0;display:grid;place-items:center;color:#8b93a7;font:13px "JetBrains Mono",monospace;padding:16px;text-align:center}
+  background:radial-gradient(ellipse at center,rgba(255,91,53,0) 35%,rgba(255,91,53,.55) 100%)}
+.nr-msg{position:absolute;inset:0;display:grid;place-items:center;color:#8b93a7;font:13px "IBM Plex Mono",monospace;padding:16px;text-align:center}
 .nr-hud{position:absolute;left:10px;top:10px;right:10px;display:flex;flex-wrap:wrap;gap:6px;pointer-events:none}
-.nr-chip{font:600 11px/1 "JetBrains Mono",ui-monospace,monospace;padding:5px 8px;border-radius:999px;
-  background:rgba(225,29,72,.12);border:1px solid rgba(225,29,72,.45);color:#fecdd3;white-space:nowrap}
-.nr-chip.on{background:#e11d48;color:#fff;border-color:#e11d48}
+.nr-chip{font:500 11px/1 "IBM Plex Mono",ui-monospace,monospace;padding:5px 8px;border-radius:6px;
+  background:rgba(10,10,10,.55);border:1px solid rgba(255,255,255,.08);color:#b9b7b2;white-space:nowrap;
+  backdrop-filter:blur(6px);transition:color .2s,border-color .2s}
+.nr-chip.on{color:#fff;border-color:rgba(255,91,53,.8);background:rgba(255,91,53,.18)}
 .nr-label{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(18,21,28,.82);
   border:1px solid #222733;font:600 12px/1.2 Inter,system-ui,sans-serif;color:#e7e9ee;white-space:nowrap;position:relative;top:-6px}
-.nr-pill{display:none;font:700 10px/1 "JetBrains Mono",monospace;letter-spacing:.04em;padding:3px 5px;border-radius:4px}
-.nr-pill.fell{display:inline-block;background:#e11d48;color:#fff}
+.nr-pill{display:none;font:700 10px/1 "IBM Plex Mono",monospace;letter-spacing:.04em;padding:3px 5px;border-radius:4px}
+.nr-pill.fell{display:inline-block;background:#ff5b35;color:#fff}
 .nr-pill.held{display:inline-block;background:#22d3ee;color:#04141a}
-.nr-tag{font:600 10px/1 "JetBrains Mono",monospace;color:#bfe3ff;background:rgba(15,40,70,.6);border:1px solid rgba(124,196,255,.5);
+.nr-tag{font:600 10px/1 "IBM Plex Mono",monospace;color:#bfe3ff;background:rgba(15,40,70,.6);border:1px solid rgba(124,196,255,.5);
   padding:3px 6px;border-radius:4px;white-space:nowrap}
-.nr-tag.red{color:#fff;background:rgba(225,29,72,.85);border-color:#e11d48}
+.nr-tag.red{color:#fff;background:rgba(255,91,53,.85);border-color:#ff5b35}
 .nr-bar{display:flex;align-items:center;gap:10px 12px;padding:10px 12px;border-top:1px solid #222733;background:#12151c;flex-wrap:wrap}
-.nr-play{width:38px;height:38px;border-radius:50%;border:0;background:#e11d48;color:#fff;display:grid;place-items:center;
+.nr-play{width:38px;height:38px;border-radius:50%;border:0;background:#ff5b35;color:#fff;display:grid;place-items:center;
   cursor:pointer;flex:none;padding:0}
 .nr-play svg{width:16px;height:16px;fill:currentColor}
 .nr-track{position:relative;flex:1 1 180px;height:30px;min-width:140px}
 .nr-rail{position:absolute;left:0;right:0;top:13px;height:4px;border-radius:2px;background:#222733;overflow:hidden}
 .nr-fill{position:absolute;left:0;top:0;bottom:0;background:#8b93a7}
-.nr-band{position:absolute;top:10px;height:10px;border-radius:2px;background:rgba(225,29,72,.45);min-width:3px}
-.nr-mark{position:absolute;top:5px;width:3px;height:20px;margin-left:-1px;border-radius:2px;background:#e11d48}
+.nr-band{position:absolute;top:10px;height:10px;border-radius:2px;background:rgba(255,91,53,.45);min-width:3px}
+.nr-mark{position:absolute;top:5px;width:3px;height:20px;margin-left:-1px;border-radius:2px;background:#ff5b35}
 .nr-range{position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;-webkit-appearance:none;appearance:none;cursor:pointer}
 .nr-range::-webkit-slider-runnable-track{height:30px;background:transparent}
 .nr-range::-moz-range-track{height:30px;background:transparent}
 .nr-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:8px;border-radius:50%;background:#e7e9ee;
   border:0;box-shadow:0 0 0 4px rgba(231,233,238,.15)}
 .nr-range::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#e7e9ee;border:0;box-shadow:0 0 0 4px rgba(231,233,238,.15)}
-.nr-time{font:12px "JetBrains Mono",ui-monospace,monospace;color:#8b93a7;min-width:92px;text-align:right;flex:none}
+.nr-time{font:12px "IBM Plex Mono",ui-monospace,monospace;color:#8b93a7;min-width:92px;text-align:right;flex:none}
 .nr-speed{display:flex;gap:2px;background:#0b0d12;border:1px solid #222733;border-radius:8px;padding:2px;flex:none}
-.nr-speed button{border:0;background:transparent;color:#8b93a7;font:600 12px "JetBrains Mono",monospace;padding:5px 8px;border-radius:6px;cursor:pointer}
+.nr-speed button{border:0;background:transparent;color:#8b93a7;font:600 12px "IBM Plex Mono",monospace;padding:5px 8px;border-radius:6px;cursor:pointer}
 .nr-speed button.on{background:#222733;color:#e7e9ee}
 @container (max-width:480px){.nr-track{flex-basis:100%;order:-1}.nr-time{min-width:0;margin-right:auto;text-align:left}}
 `;
@@ -456,24 +457,24 @@ export async function mountReplay(container, opts = {}) {
   const duration = Math.max(...robots.map((r) => r.duration));
 
   // HUD: what the attack is.
+  const ctxFeet = (sf) => (assets.sites ? Object.keys(assets.sites).length : 4) === sf.length;
   if (hud) {
     const chips = [];
     const add = (text, key) => { const c = el('span', 'nr-chip'); c.textContent = text; if (key) c.dataset.key = key; hudEl.appendChild(c); chips.push(c); };
-    if (ov0.ice) add(`ice μ${ov0.ice.mu} @ ${ov0.ice.start}–${+(ov0.ice.start + ov0.ice.length).toFixed(2)} m`);
-    if ((ov0.slippery_feet || []).length) add(`slippery ${ov0.slippery_feet.map((f) => f.site).join(' ')} μ${Math.min(...ov0.slippery_feet.map((f) => f.mu))}`);
-    if (ov0.payload) add(`payload ${ov0.payload.mass} kg`);
-    (ov0.pushes || []).forEach((p, i) => add(`push ${Math.round(p.magnitude)} N @ ${p.t0}s`, `push${i}`));
-    for (const w of ov0.weak || []) add(`weak ${w.name} ${Math.round(w.strength * 100)}%`);
+    if (ov0.ice) add(`ice μ ${+(+ov0.ice.mu).toFixed(2)}, ${+(+ov0.ice.length).toFixed(1)} m patch`);
+    if ((ov0.slippery_feet || []).length) { const sf = ov0.slippery_feet, mu = +Math.min(...sf.map((f) => f.mu)).toFixed(2); add(sf.length >= 4 || (sf.length === 2 && ctxFeet(sf)) ? `slippery floor μ ${mu}` : `slippery ${sf.map((f) => f.site).join(' ')} μ ${mu}`); }
+    if (ov0.payload) add(`${+(+ov0.payload.mass).toFixed(1)} kg load`);
+    (ov0.pushes || []).forEach((p, i) => add(`${Math.round(p.magnitude)} N shove at ${(+p.t0).toFixed(1)} s`, `push${i}`));
+    for (const w of ov0.weak || []) add(`${w.name.replace('_', ' ')} at ${Math.round(w.strength * 100)}%`);
     if (ov0.slope) {
       const deg = (x) => Math.round(THREE.MathUtils.radToDeg(x) * 10) / 10;
       if (Math.abs(ov0.slope.pitch) > 1e-4) add(`slope ${deg(Math.abs(ov0.slope.pitch))}° ${ov0.slope.pitch > 0 ? 'uphill' : 'downhill'}`);
       if (Math.abs(ov0.slope.roll) > 1e-4) add(`side slope ${deg(ov0.slope.roll)}°`);
     }
     const c = ov0.conditions || {};
-    if (c.latency) add(`latency ${Math.round(c.latency) * 20} ms`);
-    if (c.obs_noise) add(`sensor noise ${c.obs_noise}`);
+    if (c.latency) add(`${Math.round(c.latency) * 20} ms lag`);
+    if (c.obs_noise) add(`sensor noise`);
     if (c.joint_friction) add(`joint friction ×${c.joint_friction}`);
-    if (ov0.command) add(`cmd ${ov0.command.a.join(',')} → ${ov0.command.b.join(',')} @ ${ov0.command.switch}s`);
     hudEl.chips = chips;
   }
 
