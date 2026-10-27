@@ -47,9 +47,7 @@ export default function ShareButton({ id, text }: { id: string; text: string }) 
 
   const post = async () => {
     const quote = text.length > 140 ? `${text.slice(0, 139).trimEnd()}…` : text;
-    const msg = postText || `“${quote}”
-
-Every robot needs a nemesis. Try yours:`;
+    const msg = postText || `I threw “${quote}” at a simulated robot.\n\nNemesis (divagr.com) turns a sentence into physics, then retrains the robot until it holds. Try one:`;
     const file = gif.current;
     if (phone && file && navigator.canShare({ files: [file] })) {
       try {
