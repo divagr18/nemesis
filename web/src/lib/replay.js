@@ -430,6 +430,25 @@ export async function mountReplay(container, opts = {}) {
 
   // Ice: θ's patch is a band across the whole floor along the start heading (apply.with_ice
   // only tests distance), so draw one slab under all robots.
+  // Terrain: stairs/curbs as solid steps along the start heading (start-heading frame, like ice).
+  if (ov0.terrain && (ov0.terrain.steps || []).length) {
+    const width = Math.max(ov0.terrain.width || 3, 1.8 + (ghost ? 0 : spacing * (n - 1)));
+    const stepMat = track(new THREE.MeshStandardMaterial({ color: 0x2a2b2f, roughness: 0.85, metalness: 0, envMapIntensity: 0.3 }));
+    const edgeMat = track(new THREE.LineBasicMaterial({ color: COL.crimson, transparent: true, opacity: 0.55 }));
+    for (const st of ov0.terrain.steps) {
+      const len = st.x1 - st.x0, h = st.height;
+      if (len <= 0 || h <= 0) continue;
+      const box = new THREE.Mesh(track(new THREE.BoxGeometry(len, width, h)), stepMat);
+      box.position.set(st.x0 + len / 2, 0, h / 2);
+      box.castShadow = true; box.receiveShadow = true;
+      // only the nosing (front top edge) is highlighted, so a flight reads as steps, not blocks
+      const nose = new THREE.Line(track(new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-len / 2, -width / 2, h / 2 + 0.001), new THREE.Vector3(-len / 2, width / 2, h / 2 + 0.001)])), edgeMat);
+      box.add(nose);
+      world.add(box);
+    }
+  }
+
   if (ov0.ice) {
     const ice = ov0.ice, width = 1.8 + (ghost ? 0 : spacing * (n - 1));
     const slab = new THREE.Mesh(track(new THREE.BoxGeometry(ice.length, width, 0.006)),
@@ -461,6 +480,10 @@ export async function mountReplay(container, opts = {}) {
   if (hud) {
     const chips = [];
     const add = (text, key) => { const c = el('span', 'nr-chip'); c.textContent = text; if (key) c.dataset.key = key; hudEl.appendChild(c); chips.push(c); };
+    if (ov0.terrain && (ov0.terrain.steps || []).length) {
+      const st = ov0.terrain.steps, cm = Math.round(st[0].height * 100);
+      add(st.length === 1 ? `${cm} cm curb` : `${st.length} steps × ${cm} cm`);
+    }
     if (ov0.ice) add(`ice μ ${+(+ov0.ice.mu).toFixed(2)}, ${+(+ov0.ice.length).toFixed(1)} m patch`);
     if ((ov0.slippery_feet || []).length) { const sf = ov0.slippery_feet, mu = +Math.min(...sf.map((f) => f.mu)).toFixed(2); add(sf.length >= 4 || (sf.length === 2 && ctxFeet(sf)) ? `slippery floor μ ${mu}` : `slippery ${sf.map((f) => f.site).join(' ')} μ ${mu}`); }
     if (ov0.payload) add(`${+(+ov0.payload.mass).toFixed(1)} kg load`);

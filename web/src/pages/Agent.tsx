@@ -63,7 +63,7 @@ function Dot({ tone = "bg-line" }) {
 function Item({ e }: { e: Ev }) {
   switch (e.stage) {
     case "agent_start":
-      return <li className="relative rise"><Dot /><p className="font-mono text-xs text-faint">red-teaming {e.version}{e.goal ? ` · ${e.goal}` : ""}</p></li>;
+      return <li className="relative rise"><Dot /><p className="font-mono text-xs text-faint">testing robot {e.version}{e.goal ? ` · ${e.goal}` : ""}</p></li>;
     case "say":
       return <li className="relative rise"><Dot tone="bg-ink" /><p className="text-[17px] leading-relaxed">{e.text}</p></li>;
     case "tool_call":

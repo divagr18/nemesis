@@ -39,7 +39,7 @@ export default function Report() {
   if (!rep) {
     return (
       <div className="mx-auto max-w-3xl pt-16">
-        <h1 className="text-[40px] font-medium tracking-[-0.03em] sm:text-[56px]">Red-team report <span className="text-faint">{version}</span></h1>
+        <h1 className="text-[40px] font-medium tracking-[-0.03em] sm:text-[56px]">Robot report <span className="text-faint">{version}</span></h1>
         {missing && (
           <div className="mt-8">
             <p className="text-mute">Re-tests every attack and the 52-scenario gauntlet against {version}, measures safety margins, and has Muse Wonder write it up.</p>
