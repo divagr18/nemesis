@@ -446,6 +446,33 @@ Setup: `NEMESIS_OPEN=1`, `MODEL_API_KEY` unset or empty and `.env` moved away, o
   - The profile looks like Go1's: a cliff between 150 and 200 N, and 40 ms latency as a killer. The 100 N side shove does *not* break it, since 100 N for 0.2 s on 33 kg is only 0.6 m/s.
 - Clips: `runs/humanoid_clips/g1_nominal.mp4` and `g1_shove.mp4` (200 N side shove with the overlays). Copied to the main checkout's `runs/humanoid_clips/`.
 
+## Oct 27: physics audit fixes
+
+A second Opus audit read the perturbation, wrapper, evaluator and training code against the installed MuJoCo/MJX/Brax/Playground source. Four physics bugs were confirmed by probes on the PC's CPU and fixed; tests in `tests/test_physics_audit.py`.
+
+- **Go1 per-foot friction never existed.** Playground's Go1 floor has contact `priority=1`, and MJX then takes *all* contact parameters (friction, solref, solimp, condim) from the higher-priority geom instead of the max of the two. So every foot-floor contact used the floor's friction, which our primitive lowered to min(0.6, smallest foot μ).
+  - Neutral contact friction was 0.6, not the documented 1.0. θ values in 0.6–1.5 did nothing.
+  - **Every per-foot friction attack in the study was really all four feet on that friction.** That covers "rear slip", "one rear foot losing grip during a yaw reversal", "both rear slip + weak front calves", "front-feet grip loss" and the shuffled/random programs that picked a subset of feet. This likely explains the infeasible friction cluster and the friction family that never improved with fine-tuning (81 → 77 → 80%). The slippery-foot overlays showed per-foot slip the physics never had.
+  - The Oct 26 note "Playground's floor-friction randomization is a no-op" is wrong: it was effective, so `baseline_v2` and later policies trained without the friction DR stock Playground has.
+  - **Fix:** `load_env` gives the feet a copy of the floor's contact parameters and a higher priority. `apply_model` sets each foot to min(θ_foot, 0.6) and still lowers the floor to the smallest foot value, which only matters for body-floor contacts.
+  - **Verified on CPU** (old vs new code, `baseline_v2` policy, 4 seeds × 300 steps): bit-identical for nominal, forward, all-feet μ = 0.08 and a 150 N shove. That is max |Δqpos| = 0 and identical foot-contact sensors, so existing policies and uniform-ice results stand. A single rear foot at μ = 0.05 now affects only that foot: the old code fell on 4/4 seeds, the new code on 0/4. The MJX contact probe gives that foot 0.05 and the others 0.6.
+- **Payload inertia was on the wrong axes and about 2× too large.** The update added m·(|r|² − r²) to `body_inertia` as if it were in the body frame, but Go1's trunk inertial frame (`body_iquat`) is rotated about 90° about y. It also used m instead of the reduced mass Mm/(M+m) and dropped the off-diagonal terms.
+  - Effect: a forward payload quadrupled roll inertia and left yaw unchanged; a raised payload left roll unchanged. Centre-of-mass shifts and mass were right, so load attacks had the right weight and the wrong rotational inertia.
+  - **Fix:** `apply.composite_inertia` builds the full body-frame tensor, re-diagonalizes it with `eigh` and returns new `body_inertia` + `body_iquat` (jittable). A zero payload leaves the model bit-identical.
+  - **Verified:** the free-joint mass matrix matches MuJoCo's own composite of a welded point mass to ~2e-8, for four offsets. The old code was off by up to 0.05 on rotational blocks of size about 0.15.
+- **G1 evaluations included Playground's hidden kicks.** G1 Joystick kicks the base by 0.1–2 m/s every 5–10 s (`push_config.enable=True`), on top of θ. A 2 m/s kick is about 66 N·s, more than the 200 N × 0.2 s shove that breaks G1 every time.
+  - 5 s evaluations are clean (the earliest kick is at step 249). The "10 s nominal: 3/64 falls" above is probably kicks, and 6 s G1 runs (`render_ice.py`) had about 20% of seeds kicked between 5 and 6 s.
+  - **Fix:** evaluation envs (`base_dr=False`, and every Evaluator rollout) disable the env's pushes. Training keeps Playground's recipe.
+  - **Verified:** 500-step G1 rollout, ≥1 kick with pushes on, 0 off.
+- **G1 "weak motors" kept full torque.** G1's torque limits are joint-level (`jnt_actfrcrange` ±88–139 Nm, `jnt_actfrclimited`), not actuator `forcerange`, so scaling `forcerange` did nothing. The F7 note "position actuators without force limits" is wrong.
+  - **Fix:** motor strength also scales `jnt_actfrcrange` of the θ joints. Go1 has no joint limits, so nothing changes there.
+  - **Verified:** a saturated left knee command gives 139.0 Nm at strength 1.0 and 41.7 Nm (= 0.3 × 139) at 0.3. The G1 "weak knees 0.5" result above was Kp-only.
+- **Evaluator vs env termination.** G1 also terminates on foot-foot / foot-shin contact. Training ended those episodes, but the evaluator ignored them, and the wrapper restarted its scenario clock (pushes re-fire, the ice patch moves, history is cleared).
+  - **Fix:** the evaluator now counts the env's own termination as a fall, matching training. Go1's termination (upvector z < 0) implies the 45° tilt check, so Go1 results are unchanged (0 done-without-fall events in the comparison above). None occurred in 16 G1 probe rollouts either.
+- **Docs:** push slots now say start-heading frame (x = initial forward, y = left), as the code has done since the first audit. They had said "world-frame", and that text went into the LLM prompts. The Go1 `foot_friction` doc now says nominal and maximum is 0.6. The Go1 θ layout hash is unchanged.
+
+**Effect on earlier results:** Go1 results without single-subset friction or payload ops are unaffected (bit-identical physics). Per-foot friction attacks should be read as all-feet friction, payload attacks had wrong rotational inertia, and G1 runs longer than 5 s included random kicks. The study's tables were not re-run.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
