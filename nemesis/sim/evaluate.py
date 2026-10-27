@@ -22,6 +22,15 @@ from nemesis.perturb.wrapper import NemesisWrapper
 TRACK_TOL = 0.4  # m/s: mean planar velocity error above this counts as not doing the task
 
 
+def ended(state):
+    """The episode is over: a fall by the wrapper's strict check, or the raw env's own termination
+    (G1 also ends on foot-foot / foot-shin contact). Training ends episodes on both; the evaluator
+    counts both as falls, and NemesisWrapper restarts its scenario clock on both, so carrying on
+    would replay the scenario from t=0. For Go1 the env's termination (upvector z < 0) implies
+    the wrapper's tilt check, so its results are unchanged."""
+    return (state.metrics["nemesis_fall"] > 0) | (state.done > 0)
+
+
 class Evaluator:
     def __init__(self, env: NemesisWrapper, run_dir: str | Path, horizon: int = 300):
         cfg = json.loads((Path(run_dir) / "config.json").read_text())["ppo"]
@@ -39,7 +48,7 @@ class Evaluator:
         env, T = self.env, self.horizon
         trunk = env.spec.trunk
         policy = self._make_policy(params, deterministic=True)
-        s = env.reset_with(rng, theta)
+        s = env.without_env_pushes(env.reset_with(rng, theta))  # only θ perturbs the robot
         s.info["nemesis_resample"] = jp.zeros((), bool)
         q0 = s.data.qpos
         yaw0 = 2 * jp.arctan2(q0[6], q0[3])
@@ -49,7 +58,7 @@ class Evaluator:
             action, _ = policy(s.obs, jax.random.fold_in(rng, t))
             cmd = s.info["command"]
             s = env.step(s, action)
-            fell = s.metrics["nemesis_fall"] > 0
+            fell = ended(s)
             h, up = s.data.qpos[2], s.data.xmat[trunk][2, 2]
             m = jp.minimum((h - env.min_height) / 0.1, (up - env.min_up_z) / (1 - env.min_up_z))
             m = jp.where(fell, jp.minimum(m, 0.0) - 0.1, m)

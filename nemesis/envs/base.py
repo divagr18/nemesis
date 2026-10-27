@@ -29,6 +29,27 @@ def body_collision_geom_ids(m: mujoco.MjModel, robot: "str | robots.Robot" = "go
     return sorted(set(best.values()) | set(named))
 
 
+def _feet_own_contact(m: mujoco.MjModel, r: robots.Robot) -> None:
+    """Lets each foot set its own contact friction (robots with per-foot geoms, i.e. Go1).
+
+    Playground's floor has contact priority over the feet, so every foot-floor contact takes the
+    floor's friction, solref, solimp and condim, and per-foot friction is impossible. The feet get
+    a copy of the floor's contact parameters and a higher priority instead: at neutral θ every
+    contact parameter is unchanged (bit-identical rollouts), and apply_model can now set each
+    foot's friction on its own (capped at the floor's, the trained nominal contact).
+    """
+    floor = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+    for name in r.foot_geoms:
+        g = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, name)
+        m.geom_friction[g] = m.geom_friction[floor]
+        m.geom_solref[g] = m.geom_solref[floor]
+        m.geom_solimp[g] = m.geom_solimp[floor]
+        m.geom_condim[g] = m.geom_condim[floor]
+        m.geom_priority[g] = m.geom_priority[floor] + 1
+    if r.foot_friction_cap is not None:
+        assert abs(m.geom_friction[floor, 0] - r.foot_friction_cap) < 1e-6, "floor friction changed"
+
+
 def _add_extra_geoms(raw, r: robots.Robot):
     """Rebuilds the env's model with primitive collision geoms added (massless, hidden group 3),
     then re-runs the env's id lookup, since adding geoms shifts geom ids."""
@@ -69,6 +90,8 @@ def load_env(name: str = config.BASE_ENV, impl: str = config.SIM_IMPL, body_coll
         m = raw._mj_model
         ids = body_collision_geom_ids(m, r)
         m.geom_conaffinity[ids] = 1
+        if r.foot_geoms:
+            _feet_own_contact(m, r)
         raw._mjx_model = mjx.put_model(m, impl=impl)
         raw._nemesis_body_geoms = ids
     raw._nemesis_spec = robots.resolve(r, raw._mj_model, ids)

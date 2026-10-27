@@ -51,7 +51,7 @@ class NemesisWrapper(pg_wrapper.Wrapper):
     def __init__(self, env, bank: np.ndarray | None = None, nominal_frac: float = 0.5,
                  uniform: bool = False, lo: np.ndarray | None = None, hi: np.ndarray | None = None,
                  base_dr: bool = True, uniform_frac: float = 0.0, bank_weights: np.ndarray | None = None,
-                 fall_penalty: float = 1.0):
+                 fall_penalty: float = 1.0, env_pushes: bool | None = None):
         """
         bank: [N, D] scenarios to sample from. uniform=True samples U(lo, hi) per episode instead.
         bank_weights: [N] sampling probabilities for the bank (default uniform), e.g. learnability.
@@ -61,6 +61,9 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         uniform_frac: probability an episode samples U(lo, hi) even in bank mode (the 10% slice
             of the nominal / counterexample / uniform training mix).
         base_dr: apply Playground-equivalent domain randomization under θ.
+        env_pushes: keep the raw env's own random pushes (Playground's G1 kicks the robot by
+            0.1-2 m/s every 5-10 s; Go1's are disabled in its config). Default: same as base_dr,
+            so training keeps Playground's recipe and evaluation envs (base_dr=False) only see θ.
         """
         super().__init__(env)
         raw = env.unwrapped
@@ -76,6 +79,7 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         self._lo = jp.asarray(L.LO if lo is None else lo)
         self._hi = jp.asarray(L.HI if hi is None else hi)
         self._base_dr = base_dr
+        self._env_pushes = base_dr if env_pushes is None else env_pushes
         self._uniform_frac = uniform_frac
         self._body_geoms = jp.asarray(getattr(raw, "_nemesis_body_geoms", []), jp.int32)
         self._scales = dict(raw._config.reward_config.scales)
@@ -120,6 +124,18 @@ class NemesisWrapper(pg_wrapper.Wrapper):
             yield
         finally:
             env._mjx_model = base
+
+    @staticmethod
+    def without_env_pushes(state):
+        """Turns off the raw env's own random pushes for this env (they would act on top of θ).
+
+        Playground's G1 Joystick kicks the base whenever (push_step + 1) % push_interval_steps == 0;
+        an interval of 2^30 steps never comes. The env's info is kept across Brax auto-resets, so
+        this holds for later episodes too.
+        """
+        if "push_interval_steps" in state.info:
+            state.info["push_interval_steps"] = jp.full_like(state.info["push_interval_steps"], 2**30)
+        return state
 
     # --- Fall detection ---
 
@@ -167,6 +183,8 @@ class NemesisWrapper(pg_wrapper.Wrapper):
             nemesis_resample=jp.ones((), bool),
         )
         state.metrics["nemesis_fall"] = jp.zeros(())
+        if not self._env_pushes:
+            state = self.without_env_pushes(state)
         q = state.data.qpos
         yaw = 2 * jp.arctan2(q[6], q[3])
         hist = jp.zeros((HISTORY, self.robot.obs_size))

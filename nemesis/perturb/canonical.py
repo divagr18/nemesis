@@ -32,9 +32,15 @@ class Slot:
 def _slots(r: robots.Robot) -> tuple:
     nf, nj = len(r.feet), len(r.joints)
     cmd_lo, cmd_hi = r.command_lo, r.command_hi
+    friction_doc = f"contact friction per foot ({' '.join(r.feet)}); ice 0.05-0.15, wet tile 0.25-0.4, wood 0.5-0.7"
+    if r.foot_friction_cap is not None:
+        cap = r.foot_friction_cap
+        friction_doc += f"; nominal (and maximum) contact friction is {cap}, so values above {cap} have no effect"
+    else:
+        friction_doc += ", concrete 0.7-1.0"
     return (
         # Contact and body
-        Slot("foot_friction", nf, r.nominal_friction, 0.05, 1.5, "mu", f"effective contact friction per foot ({' '.join(r.feet)}); ice 0.05-0.15, wet tile 0.25-0.4, wood 0.5-0.7, concrete 0.7-1.0"),
+        Slot("foot_friction", nf, r.nominal_friction, 0.05, 1.5, "mu", friction_doc),
         Slot("ice_mu", 1, 1.0, 0.05, 1.0, "mu", "friction inside the ice patch"),
         Slot("ice_start", 1, 0.0, 0.0, 6.0, "m", "distance along the initial heading where the ice patch begins"),
         Slot("ice_length", 1, 0.0, 0.0, 4.0, "m", "ice patch length (0 = no patch)"),
@@ -46,10 +52,10 @@ def _slots(r: robots.Robot) -> tuple:
         Slot("joint_friction", 1, 1.0, 1.0, 4.0, "x", "joint frictionloss scale (stiff/worn joints)"),
         Slot("latency", 1, 0.0, 0.0, 2.0, "steps", "action delay in 20 ms control steps (rounded)"),
         # External forces
-        Slot("push1_force", 3, 0.0, -r.push_max, r.push_max, "N", f"world-frame force on the trunk; {r.push_note}"),
+        Slot("push1_force", 3, 0.0, -r.push_max, r.push_max, "N", f"force on the trunk in the start-heading frame (x = initial forward, y = left, z = up); {r.push_note}"),
         Slot("push1_start", 1, 0.0, 0.0, 20.0, "s", "push start time within the episode"),
         Slot("push1_duration", 1, 0.0, 0.0, 0.5, "s", "push duration (0 = no push)"),
-        Slot("push2_force", 3, 0.0, -r.push_max, r.push_max, "N", "second push, world frame"),
+        Slot("push2_force", 3, 0.0, -r.push_max, r.push_max, "N", "second push, start-heading frame (x = initial forward, y = left)"),
         Slot("push2_start", 1, 0.0, 0.0, 20.0, "s", "second push start"),
         Slot("push2_duration", 1, 0.0, 0.0, 0.5, "s", "second push duration"),
         # Sensing

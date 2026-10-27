@@ -6,6 +6,7 @@ from a robots.Spec (default: Go1), and θ is read with that robot's layout.
 
 import jax
 import jax.numpy as jp
+from mujoco.mjx._src import math as mjx_math
 
 from nemesis import robots
 from nemesis.perturb import canonical as C
@@ -68,27 +69,40 @@ def apply_model(model, theta, yaw=0.0, spec=GO1):
         # Explicit foot-floor contact pairs (G1): their friction is the contact friction.
         pair_fric = pair_fric.at[jp.array(spec.foot_pairs), 0:2].set(mu[:, None])
     else:
-        # Contact friction is max(geom1, geom2): set each foot to its target and lower the floor
-        # to the smallest target, so every foot's effective friction is exactly its target.
-        fric = fric.at[jp.array(spec.foot_geoms), 0].set(mu)
-        fric = fric.at[spec.floor, 0].set(jp.minimum(fric[spec.floor, 0], mu.min()))
+        # Per-foot geoms (Go1): envs.base gives the feet contact priority over the floor, so each
+        # foot-floor contact uses that foot's friction. It is capped at the floor's friction (0.6,
+        # the nominal contact the policies were trained on; θ's neutral 1.0 means "nominal").
+        # The floor is lowered to the smallest foot value as before, which only matters for
+        # body-floor contacts (after a fall) and keeps uniform all-feet attacks bit-identical.
+        cap = fric[spec.floor, 0]
+        fric = fric.at[jp.array(spec.foot_geoms), 0].set(jp.minimum(mu, cap))
+        fric = fric.at[spec.floor, 0].set(jp.minimum(cap, mu.min()))
 
-    # Payload: point mass at an offset from the trunk CoM (parallel-axis inertia update).
+    # Payload: point mass m at offset r (trunk frame) from the trunk CoM.
     m = slot(theta, "payload_mass", spec)[0]
     r = slot(theta, "payload_offset", spec)
     M = model.body_mass[T]
     ipos = model.body_ipos.at[T].add(m * r / (M + m))
-    inertia = model.body_inertia.at[T].add(m * (jp.sum(r**2) - r**2))
     mass = model.body_mass.at[T].add(m)
+    inertia_T, iquat_T = composite_inertia(M, model.body_iquat[T], model.body_inertia[T], m, r)
+    payload = m > 0  # neutral θ leaves the inertia exactly as it was
+    inertia = model.body_inertia.at[T].set(jp.where(payload, inertia_T, model.body_inertia[T]))
+    iquat = model.body_iquat.at[T].set(jp.where(payload, iquat_T, model.body_iquat[T]))
 
     # Motor weakness: position actuators, so scale Kp (gain and bias) and the torque limit.
     # Actuators outside the θ joints (G1's waist and arms) keep full strength.
-    s = slot(theta, "motor_strength", spec)
+    s_theta = slot(theta, "motor_strength", spec)
+    s = s_theta
     if spec.actuators != tuple(range(spec.nu)):
         s = jp.ones(spec.nu).at[jp.array(spec.actuators)].set(s)
     gain = model.actuator_gainprm.at[:, 0].multiply(s)
     bias = model.actuator_biasprm.at[:, 1].multiply(s).at[:, 2].multiply(s)
     frange = model.actuator_forcerange * s[:, None]
+    # Joint-level actuator force limits (G1: jnt_actfrcrange, ±88-139 Nm) cap the torque too.
+    # Unlimited joints (Go1) have a zero range, which scaling leaves at zero.
+    afrange = model.jnt_actfrcrange
+    if spec.joints:
+        afrange = jp.asarray(afrange).at[jp.array(spec.joints)].multiply(s_theta[:, None])
 
     floss = model.dof_frictionloss.at[6:].multiply(slot(theta, "joint_friction", spec)[0])
 
@@ -97,9 +111,41 @@ def apply_model(model, theta, yaw=0.0, spec=GO1):
 
     return model.replace(
         geom_friction=fric, pair_friction=pair_fric, body_mass=mass, body_ipos=ipos,
-        body_inertia=inertia, actuator_gainprm=gain, actuator_biasprm=bias,
-        actuator_forcerange=frange, dof_frictionloss=floss, opt=model.opt.replace(gravity=gravity),
+        body_inertia=inertia, body_iquat=iquat, actuator_gainprm=gain, actuator_biasprm=bias,
+        actuator_forcerange=frange, jnt_actfrcrange=afrange, dof_frictionloss=floss,
+        opt=model.opt.replace(gravity=gravity),
     )
+
+
+def composite_inertia(M, iquat, inertia, m, r):
+    """Principal inertia and its frame for a body (mass M, inertia `inertia` in the frame `iquat`)
+    plus a point mass m at offset r from the body's CoM, both expressed in the body frame.
+
+    About the new CoM the added term is the reduced mass mu = M m / (M + m) times
+    (|r|^2 I - r r^T), off-diagonals included; the result is re-diagonalized, so the inertial
+    frame (body_iquat) rotates with it. Returns (inertia [3], iquat [4]); jittable.
+    """
+    R = mjx_math.quat_to_mat(iquat)
+    mu = M * m / jp.maximum(M + m, 1e-9)
+    full = R @ jp.diag(inertia) @ R.T + mu * (jp.dot(r, r) * jp.eye(3) - jp.outer(r, r))
+    evals, evecs = jp.linalg.eigh(0.5 * (full + full.T))
+    evecs = evecs * jp.where(jp.linalg.det(evecs) < 0, -1.0, 1.0)  # proper rotation
+    return evals, _mat_to_quat(evecs)
+
+
+def _mat_to_quat(R):
+    """Unit quaternion (w, x, y, z) of a rotation matrix (Shepperd's method; jittable)."""
+    t = jp.trace(R)
+    d = jp.array([t, R[0, 0], R[1, 1], R[2, 2]])
+    cands = jp.stack([
+        jp.array([1 + t, R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]),
+        jp.array([R[2, 1] - R[1, 2], 1 + 2 * R[0, 0] - t, R[0, 1] + R[1, 0], R[0, 2] + R[2, 0]]),
+        jp.array([R[0, 2] - R[2, 0], R[0, 1] + R[1, 0], 1 + 2 * R[1, 1] - t, R[1, 2] + R[2, 1]]),
+        jp.array([R[1, 0] - R[0, 1], R[0, 2] + R[2, 0], R[1, 2] + R[2, 1], 1 + 2 * R[2, 2] - t]),
+    ])
+    q = cands[jp.argmax(d)]
+    q = q / jp.linalg.norm(q)
+    return q * jp.where(q[0] < 0, -1.0, 1.0)
 
 
 def _rot_z(v, yaw):

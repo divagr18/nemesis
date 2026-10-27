@@ -31,6 +31,10 @@ class Robot:
     foot_geoms: tuple = ()
     foot_pairs: tuple = ()
     nominal_friction: float = 1.0
+    # Per-foot geoms only: the contact friction can't exceed the floor's (the scene gives the floor
+    # contact priority; envs.base hands that priority to the feet so each foot's friction applies on
+    # its own, capped at this value to keep the trained nominal contact). None: no cap (pairs).
+    foot_friction_cap: float | None = None
     # Body-floor collisions for strict falls: (body-name suffix -> geom type) picks the largest
     # existing geom of that type per body (Go1); `collision_geoms` enables named geoms; extra
     # primitive geoms are added to the model (bodies whose collision shapes are meshes only).
@@ -75,6 +79,7 @@ GO1 = Robot(
     foot_sites=("FR", "FL", "RR", "RL"),
     min_height=0.18,
     foot_geoms=("FR", "FL", "RR", "RL"),
+    foot_friction_cap=0.6,  # the floor geom's friction in Playground's Go1 scene
     collision_parts={"trunk": _BOX, "thigh": _CAP, "calf": _CAP},
 )
 
@@ -155,6 +160,7 @@ class Spec:
     nu: int
     nbody: int
     body_geoms: tuple = ()
+    joints: tuple = ()      # joint id per θ joint (joint-level actuator force limits)
 
     @property
     def min_up_z(self) -> float:
@@ -182,6 +188,7 @@ def resolve(robot: "str | Robot", m, body_geoms=()) -> Spec:
         nu=m.nu,
         nbody=m.nbody,
         body_geoms=tuple(int(g) for g in body_geoms),
+        joints=tuple(jnts),
     )
 
 
@@ -191,5 +198,5 @@ GO1_SPEC = Spec(
     robot=GO1, trunk=1, floor=0, foot_geoms=(15, 26, 38, 50), foot_pairs=(),
     actuators=tuple(range(12)), joint_qpos=tuple(range(12)),
     joint_bodies=(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13),
-    foot_sites=(2, 3, 4, 5), imu_site=-1, nu=12, nbody=14,
+    foot_sites=(2, 3, 4, 5), imu_site=-1, nu=12, nbody=14, joints=tuple(range(1, 13)),
 )
