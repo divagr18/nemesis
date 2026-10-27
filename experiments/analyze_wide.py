@@ -179,6 +179,41 @@ def main():
           f"**H-D3 (Glimmer ≥ 50% of Wonder):** {v3}", ""]
     out["D_verdicts"] = {"D1": v1, "D2": v2, "D3": v3}
 
+    # ---- S: terrain (stairs/curbs), pre-registered H-S --------------------------------------------
+    if (root / "S").exists():
+        from nemesis.perturb import canonical as C
+        S = load_attack_runs(root / "S")
+
+        def terrain(rec) -> bool:
+            th = np.asarray(rec["theta"], np.float32)
+            return float(th[C.INDEX["stairs_height"]].max()) > 0 and float(th[C.INDEX["stairs_count"]].max()) >= 0.5
+
+        def terrain_stats(run):
+            strict = [r for r in run["atlas"] if r.get("found") and _strict_ok(r)]
+            t = [r for r in strict if terrain(r)]
+            return {"strict": len(strict), "terrain": len(t),
+                    "terrain_modes": len({tuple(r["mode"]) for r in t if r.get("mode")})}
+
+        arms = ("nemesis", "shuffled", "box")
+        L += ["## S: terrain (strict terrain failures, mean [per seed])", "",
+              "| Target | " + " | ".join(arms) + " | all strict (n/s/b) |", "|---|" + "---|" * (len(arms) + 1)]
+        out["S"] = {}
+        for t in ("base", "dr"):
+            g = by(S, t)
+            st = {a: [terrain_stats(r) for r in g.get(a, [])] for a in arms}
+            out["S"][t] = st
+            L.append(f"| {t} | " + " | ".join(fmt([x["terrain"] for x in st[a]]) for a in arms) + " | "
+                     + " / ".join(fmt([x["strict"] for x in st[a]]) for a in arms) + " |")
+        res = []
+        for t in ("base", "dr"):
+            n = [x["terrain"] for x in out["S"][t]["nemesis"]]
+            sh = [x["terrain"] for x in out["S"][t]["shuffled"]]
+            res.append(verdict(bool(n and sh and np.mean(n) > np.mean(sh)), n, sh))
+        v = ("SUPPORTED" if all(r == "SUPPORTED" for r in res) else
+             "NOT SUPPORTED" if any(r == "NOT SUPPORTED" for r in res) else "INCONCLUSIVE")
+        L += ["", f"**H-S verdict:** {v} (base: {res[0]}; dr: {res[1]})", ""]
+        out["S_verdict"] = v
+
     # ---- E: DR envelope widths (GPU) --------------------------------------------------------------
     if args.eval_e:
         from analyze import _summ

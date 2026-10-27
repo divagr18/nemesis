@@ -42,6 +42,12 @@ def jobs(exp: str) -> list[tuple[int, str]]:
         for w in ("0.25", "1.0"):
             for s in range(3):
                 J.append((6, run("dr", s, f"runs/E/dr_w{w}_s{s}", f"--dr-width {w}")))
+    elif exp == "S":  # terrain (pre-registered H-S): full space now includes stairs/curbs
+        for t in ("base", "dr"):
+            for arm in ("nemesis", "shuffled", "box"):
+                for s in range(3):
+                    J.append((COST[arm], run(arm, s, f"runs/S/{t}_{arm}_s{s}", f"--base {TARGETS[t]}",
+                                             "--attack-only --rounds 1 --attack-steps 10000000")))
     else:
         raise SystemExit(f"unknown experiment {exp}")
     return J
