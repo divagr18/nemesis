@@ -29,13 +29,19 @@ NOT_MAGNITUDES = ("command_mode", "command_a", "command_b", "command_switch",
                   "push1_start", "push2_start", "ice_start")
 
 
-def plausibility_cost(thetas: np.ndarray) -> np.ndarray:
+def _layout(evaluator):
+    """θ layout of the evaluator's robot (Go1 for evaluators without a NemesisWrapper env)."""
+    return getattr(getattr(evaluator, "env", None), "layout", C.GO1)
+
+
+def plausibility_cost(thetas: np.ndarray, L=C.GO1) -> np.ndarray:
     """Normalized distance from nominal in [0, 1]: RMS of per-slot deviation over the envelope,
-    taken over the slots that deviate (so one strong change is as costly as several mild ones)."""
-    dev = np.abs(thetas - C.NEUTRAL) / C.SPAN
+    taken over the slots that deviate (so one strong change is as costly as several mild ones).
+    `L` is the robot's θ layout."""
+    dev = np.abs(thetas - L.NEUTRAL) / L.SPAN
     # The command profile is the task, and start times/positions are timing, not magnitude.
     for name in NOT_MAGNITUDES:
-        dev[:, C.INDEX[name]] = 0
+        dev[:, L.INDEX[name]] = 0
     n = np.maximum((dev > 1e-6).sum(1), 1)
     return np.sqrt((dev**2).sum(1) / n)
 
@@ -55,10 +61,10 @@ class SearchResult:
         return self.best_fail_rate >= SEARCH_FAIL
 
 
-def fitness(result: dict, thetas: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def fitness(result: dict, thetas: np.ndarray, L=C.GO1) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     fail_rate = result["fell"].mean(1)
     robust = result["robustness"].mean(1)
-    cost = plausibility_cost(thetas)
+    cost = plausibility_cost(thetas, L)
     f = np.where(fail_rate >= SEARCH_FAIL, -2.0 + cost, robust)
     f = np.where(np.isfinite(f), f, np.inf)  # a NaN candidate must not freeze best-tracking
     return f, fail_rate, cost
@@ -71,8 +77,8 @@ def search(evaluator, params, program: Compiled, **kw) -> SearchResult:
 class _Run:
     """CMA-ES state for one program inside a batched multi-program search."""
 
-    def __init__(self, program, pop, rng):
-        self.program, self.k = program, max(program.k, 1)
+    def __init__(self, program, pop, rng, layout=C.GO1):
+        self.program, self.k, self.layout = program, max(program.k, 1), layout
         self.es = CMA_ES(population_size=pop, solution=jp.zeros(self.k))
         self.es_params = self.es.default_params
         self.state = self.es.init(rng, jp.zeros(self.k), self.es_params)
@@ -87,7 +93,7 @@ class _Run:
         return z, self.program.theta_units(u)
 
     def tell(self, rng, z, thetas, res, patience, record):
-        f, fail_rate, cost = fitness(res, thetas)
+        f, fail_rate, cost = fitness(res, thetas, self.layout)
         self.state, _ = self.es.tell(rng, z, jp.asarray(f), self.state, self.es_params)
         if record:
             self.history.append({"thetas": thetas, "fitness": f, "fail_rate": fail_rate, "cost": cost})
@@ -112,12 +118,13 @@ def search_many(evaluator, params, programs: list, pop: int = 24, gens: int = 12
     nominal θ and not charged), so the evaluator compiles once for the whole hunt.
     """
     slots = slots or len(programs)
+    L = _layout(evaluator)
     rng = jax.random.PRNGKey(key)
     runs = []
     for p in programs:
         rng, k = jax.random.split(rng)
-        runs.append(_Run(p, pop, k))
-    pad = np.repeat(C.neutral()[None], pop, axis=0)
+        runs.append(_Run(p, pop, k, L))
+    pad = np.repeat(L.neutral()[None], pop, axis=0)
 
     for gen in range(gens):
         active = [r for r in runs if not r.done]
@@ -150,20 +157,21 @@ def shrink(evaluator, params, theta: np.ndarray, seeds: int = 8, key: int = 1, i
     Returns (minimal θ, env steps used). Groups are canonical slots (e.g. all four foot
     frictions move together); each is bisected between nominal and its current value.
     """
+    L = _layout(evaluator)
     theta = np.array(theta, np.float32)
     steps = 0
-    for s in C.SLOTS:
-        sl = C.INDEX[s.name]
-        if s.name in NOT_MAGNITUDES or np.allclose(theta[sl], C.NEUTRAL[sl]):
+    for s in L.SLOTS:
+        sl = L.INDEX[s.name]
+        if s.name in NOT_MAGNITUDES or np.allclose(theta[sl], L.NEUTRAL[sl]):
             continue
         lo, hi = 0.0, 1.0  # fraction of the way from nominal to the current value
         target = theta[sl].copy()
         for _ in range(iters):
             mid = (lo + hi) / 2
             cand = theta.copy()
-            cand[sl] = C.NEUTRAL[sl] + mid * (target - C.NEUTRAL[sl])
+            cand[sl] = L.NEUTRAL[sl] + mid * (target - L.NEUTRAL[sl])
             fail = evaluator(params, cand[None], seeds=seeds, key=key)["fell"].mean() >= SHRINK_FAIL
             steps += seeds * evaluator.horizon
             lo, hi = (lo, mid) if fail else (mid, hi)
-        theta[sl] = C.NEUTRAL[sl] + hi * (target - C.NEUTRAL[sl])
+        theta[sl] = L.NEUTRAL[sl] + hi * (target - L.NEUTRAL[sl])
     return theta, steps

@@ -20,7 +20,7 @@ from brax.training.agents.ppo import train as ppo
 from mujoco_playground import registry, wrapper
 from mujoco_playground.config import locomotion_params
 
-from nemesis import config
+from nemesis import config, robots
 from nemesis.envs.base import load_env
 
 
@@ -105,7 +105,8 @@ def train(
         restore_params = (_reset_theta_normalizer(norm), pol, val)
 
     (run_dir / "config.json").write_text(json.dumps({
-        "env_name": env_name, "impl": config.SIM_IMPL, "seed": seed, "nemesis": nemesis,
+        "env_name": env_name, "robot": robots.for_env(env_name).name, "impl": config.SIM_IMPL,
+        "seed": seed, "nemesis": nemesis,
         "ppo": params.to_dict(),
     }, indent=1))
 
@@ -171,10 +172,14 @@ def make_policy(run_dir: str | Path, env, step: int | None = None, deterministic
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--env", default=config.BASE_ENV)
+    ap.add_argument("--robot", choices=sorted(robots.ROBOTS), default=None,
+                    help="train this robot's registered env (overrides --env)")
     ap.add_argument("--out", default="runs/baseline")
     ap.add_argument("--steps", type=int, default=None, help="default: Playground's tuned budget")
     ap.add_argument("--evals", type=int, default=None, help="fewer evals = smaller minimum budget")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--stock", action="store_true", help="Playground's stock env (no NemesisWrapper)")
     args = ap.parse_args()
+    if args.robot:
+        args.env = robots.get(args.robot).env
     train(args.env, args.out, args.steps, args.evals, args.seed, nemesis=not args.stock)

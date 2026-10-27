@@ -4,40 +4,72 @@ import mujoco
 from mujoco import mjx
 from mujoco_playground import registry
 
-from nemesis import config
+from nemesis import config, robots
 
-# Playground's Joystick scene only lets the feet touch the floor, so a fallen robot sinks
-# through the ground. These geoms (trunk box, main thigh and calf capsules) are made to
+# Playground's Joystick scenes only let the feet touch the floor, so a fallen robot sinks
+# through the ground. Go1: these geoms (trunk box, main thigh and calf capsules) are made to
 # collide with the floor (floor contype=1; robot geoms keep contype=0, so no self-collision).
-BODY_COLLISION_GEOMS = {
-    "trunk": mujoco.mjtGeom.mjGEOM_BOX,
-    "thigh": mujoco.mjtGeom.mjGEOM_CAPSULE,
-    "calf": mujoco.mjtGeom.mjGEOM_CAPSULE,
-}
+BODY_COLLISION_GEOMS = robots.GO1.collision_parts
 
 
-def body_collision_geom_ids(m: mujoco.MjModel) -> list[int]:
-    """The largest geom of the given type on the trunk and on every thigh and calf."""
+def body_collision_geom_ids(m: mujoco.MjModel, robot: "str | robots.Robot" = "go1") -> list[int]:
+    """Geoms that should touch the floor: the robot's named collision geoms, plus the largest geom
+    of the given type on every body whose name ends with one of its collision parts."""
+    r = robots.get(robot)
     best = {}
     for g in range(m.ngeom):
         body = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, m.geom_bodyid[g]) or ""
-        part = next((p for p in BODY_COLLISION_GEOMS if body.endswith(p)), None)
-        if part is None or m.geom_type[g] != BODY_COLLISION_GEOMS[part] or m.geom_conaffinity[g]:
+        part = next((p for p in r.collision_parts if body.endswith(p)), None)
+        if part is None or m.geom_type[g] != r.collision_parts[part] or m.geom_conaffinity[g]:
             continue
         if body not in best or m.geom_rbound[g] > m.geom_rbound[best[body]]:
             best[body] = g
-    return sorted(best.values())
+    named = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, n)
+             for n in (*r.collision_geoms, *(e[1] for e in r.extra_geoms))]
+    return sorted(set(best.values()) | set(named))
+
+
+def _add_extra_geoms(raw, r: robots.Robot):
+    """Rebuilds the env's model with primitive collision geoms added (massless, hidden group 3),
+    then re-runs the env's id lookup, since adding geoms shifts geom ids."""
+    spec = mujoco.MjSpec.from_file(str(raw.xml_path), assets=raw._model_assets)
+    for body, name, gtype, size, where in r.extra_geoms:
+        g = spec.body(body).add_geom(name=name, type=mujoco.mjtGeom(gtype), size=list(size),
+                                     contype=0, conaffinity=0, group=3, condim=3, mass=0)
+        if len(where) == 6:
+            g.fromto = list(where)
+        else:
+            g.pos = list(where)
+    old = raw._mj_model
+    m = spec.compile()
+    m.opt.timestep = old.opt.timestep
+    m.jnt_range[:] = old.jnt_range
+    m.actuator_ctrlrange[:] = old.actuator_ctrlrange
+    m.vis.global_.offwidth, m.vis.global_.offheight = old.vis.global_.offwidth, old.vis.global_.offheight
+    raw._mj_model = m
+    raw._post_init()
 
 
 def load_env(name: str = config.BASE_ENV, impl: str = config.SIM_IMPL, body_collisions: bool = True,
-             **overrides):
-    """Returns (env, env_config). `overrides` are passed to Playground as config overrides."""
+             robot: "str | None" = None, **overrides):
+    """Returns (env, env_config). `overrides` are passed to Playground as config overrides.
+
+    `robot` (a robots.ROBOTS key) picks that robot's env instead of `name`. The raw env gets a
+    `_nemesis_spec` (robots.Spec) that the wrapper, evaluator and overlays read.
+    """
+    r = robots.get(robot) if robot else robots.for_env(name)
+    name = r.env if robot else name
     cfg = registry.get_default_config(name)
     env = registry.load(name, config=cfg, config_overrides={"impl": impl, **overrides})
+    raw = env.unwrapped
+    ids = []
     if body_collisions:
-        m = env.unwrapped._mj_model
-        ids = body_collision_geom_ids(m)
+        if r.extra_geoms:
+            _add_extra_geoms(raw, r)
+        m = raw._mj_model
+        ids = body_collision_geom_ids(m, r)
         m.geom_conaffinity[ids] = 1
-        env.unwrapped._mjx_model = mjx.put_model(m, impl=impl)
-        env.unwrapped._nemesis_body_geoms = ids
+        raw._mjx_model = mjx.put_model(m, impl=impl)
+        raw._nemesis_body_geoms = ids
+    raw._nemesis_spec = robots.resolve(r, raw._mj_model, ids)
     return env, cfg

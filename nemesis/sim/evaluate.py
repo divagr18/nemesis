@@ -17,8 +17,7 @@ import numpy as np
 from brax.training.acme import running_statistics
 from brax.training.agents.ppo import networks as ppo_networks
 
-from nemesis.perturb import apply as A
-from nemesis.perturb.wrapper import MIN_HEIGHT, MIN_UP_Z, NemesisWrapper
+from nemesis.perturb.wrapper import NemesisWrapper
 
 TRACK_TOL = 0.4  # m/s: mean planar velocity error above this counts as not doing the task
 
@@ -38,6 +37,7 @@ class Evaluator:
 
     def _one(self, params, theta, rng, record):
         env, T = self.env, self.horizon
+        trunk = env.spec.trunk
         policy = self._make_policy(params, deterministic=True)
         s = env.reset_with(rng, theta)
         s.info["nemesis_resample"] = jp.zeros((), bool)
@@ -50,11 +50,11 @@ class Evaluator:
             cmd = s.info["command"]
             s = env.step(s, action)
             fell = s.metrics["nemesis_fall"] > 0
-            h, up = s.data.qpos[2], s.data.xmat[A.TRUNK][2, 2]
-            m = jp.minimum((h - MIN_HEIGHT) / 0.1, (up - MIN_UP_Z) / (1 - MIN_UP_Z))
+            h, up = s.data.qpos[2], s.data.xmat[trunk][2, 2]
+            m = jp.minimum((h - env.min_height) / 0.1, (up - env.min_up_z) / (1 - env.min_up_z))
             m = jp.where(fell, jp.minimum(m, 0.0) - 0.1, m)
             m = jp.where(jp.isfinite(m), m, -1.1)  # diverged simulation counts as a fall
-            v = self._raw.get_local_linvel(s.data)
+            v = env.local_linvel(s.data)
             err = jp.linalg.norm(v[:2] - cmd[:2])
             margin = jp.where(alive, jp.minimum(margin, m), margin)
             err_sum = err_sum + jp.where(alive, err, 0.0)
@@ -62,7 +62,7 @@ class Evaluator:
             t_fall = jp.where(alive & fell, t, t_fall)
             # Fall signature: gravity direction in the trunk frame at the moment of the fall
             # (x>0: nose down, x<0: nose up, y>0: rolled right, y<0: rolled left).
-            g = s.data.xmat[A.TRUNK].T @ jp.array([0.0, 0.0, -1.0])
+            g = s.data.xmat[trunk].T @ jp.array([0.0, 0.0, -1.0])
             fall_g = jp.where(alive & fell, g, fall_g)
             q_last = jp.where(alive & ~fell & jp.isfinite(s.data.qpos).all(), s.data.qpos, q_last)
             alive = alive & ~fell

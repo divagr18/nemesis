@@ -10,9 +10,13 @@ episode: from a scenario bank (with a nominal fraction), or uniformly from the e
 domain-randomization arm). Set info["nemesis_resample"]=False to pin θ (evaluation).
 
 Beyond the raw env, the wrapper also
-  - ends the episode on a real fall (non-foot ground contact, tilt > 45°, trunk below 0.18 m),
+  - ends the episode on a real fall (non-foot ground contact, tilt > 45°, root below the robot's
+    minimum height, e.g. 0.18 m for Go1),
   - computes the reward without Playground's clip at 0, so hard scenarios keep a gradient,
   - stacks the last HISTORY actor observations and appends normalized θ to the critic's input.
+
+The robot (θ layout, body ids, observation offsets, fall thresholds) comes from the robots.Spec
+that envs.base.load_env attaches to the raw env.
 """
 
 import contextlib
@@ -22,13 +26,25 @@ import jax.numpy as jp
 import numpy as np
 from mujoco_playground._src import wrapper as pg_wrapper
 
+from nemesis import robots
 from nemesis.perturb import apply as A
 from nemesis.perturb import canonical as C
 
 HISTORY = 3
-STATE = 48
-MIN_HEIGHT = 0.18
-MIN_UP_Z = float(np.cos(np.deg2rad(45)))
+STATE = robots.GO1.obs_size  # Go1's values; per-robot ones come from the env's robots.Spec
+MIN_HEIGHT = robots.GO1.min_height
+MIN_UP_Z = float(np.cos(np.deg2rad(robots.GO1.max_tilt_deg)))
+
+
+def spec_of(env) -> robots.Spec:
+    """The robots.Spec load_env attached to the raw env (resolved by env class for a bare env)."""
+    raw = env.unwrapped
+    spec = getattr(raw, "_nemesis_spec", None)
+    if spec is None:
+        module = type(raw).__module__.split(".")
+        robot = next(r for r in robots.ROBOTS.values() if r.name in module)
+        spec = robots.resolve(robot, raw._mj_model)
+    return spec
 
 
 class NemesisWrapper(pg_wrapper.Wrapper):
@@ -47,25 +63,36 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         base_dr: apply Playground-equivalent domain randomization under θ.
         """
         super().__init__(env)
-        self._bank = jp.asarray(bank if bank is not None else C.neutral()[None], jp.float32)
+        raw = env.unwrapped
+        self.spec = spec_of(env)
+        self.robot = self.spec.robot
+        self.layout = L = C.layout(self.robot)
+        self._bank = jp.asarray(bank if bank is not None else L.neutral()[None], jp.float32)
         w = np.ones(len(self._bank)) if bank_weights is None else np.asarray(bank_weights, np.float64)
         self._bank_logits = jp.asarray(np.log(np.maximum(w / w.sum(), 1e-12)), jp.float32)
         self._fall_penalty = fall_penalty
         self._nominal_frac = nominal_frac
         self._uniform = uniform
-        self._lo = jp.asarray(C.LO if lo is None else lo)
-        self._hi = jp.asarray(C.HI if hi is None else hi)
+        self._lo = jp.asarray(L.LO if lo is None else lo)
+        self._hi = jp.asarray(L.HI if hi is None else hi)
         self._base_dr = base_dr
         self._uniform_frac = uniform_frac
-        raw = env.unwrapped
         self._body_geoms = jp.asarray(getattr(raw, "_nemesis_body_geoms", []), jp.int32)
         self._scales = dict(raw._config.reward_config.scales)
         self._episode_length = int(raw._config.episode_length)
+        self.min_height = self.robot.min_height
+        self.min_up_z = self.spec.min_up_z
 
     @property
     def observation_size(self):
         priv = self.env.observation_size["privileged_state"][0]
-        return {"state": (STATE * HISTORY,), "privileged_state": (priv + C.D,)}
+        return {"state": (self.robot.obs_size * HISTORY,), "privileged_state": (priv + C.D,)}
+
+    def local_linvel(self, data):
+        """Body-frame linear velocity as the env measures it (for command tracking)."""
+        raw = self.env.unwrapped
+        frame = self.robot.linvel_frame
+        return raw.get_local_linvel(data) if frame is None else raw.get_local_linvel(data, frame)
 
     # --- θ and DR sampling ---
 
@@ -78,18 +105,18 @@ class NemesisWrapper(pg_wrapper.Wrapper):
             theta = self._bank[jax.random.categorical(k3, self._bank_logits)]
         r = jax.random.uniform(k2)
         theta = jp.where(r < self._nominal_frac + self._uniform_frac, uni, theta)
-        return jp.where(r < self._nominal_frac, jp.asarray(C.NEUTRAL), theta)
+        return jp.where(r < self._nominal_frac, jp.asarray(self.layout.NEUTRAL), theta)
 
     def sample_dr(self, rng):
         model = self.env.unwrapped._mjx_model
-        return A.sample_base_dr(rng, model) if self._base_dr else A.neutral_base_dr(model)
+        return A.sample_base_dr(rng, model, self.spec) if self._base_dr else A.neutral_base_dr(model)
 
     @contextlib.contextmanager
     def _perturbed(self, theta, dr, yaw=0.0):
         env = self.env.unwrapped
         base = env._mjx_model
         try:
-            env._mjx_model = A.apply_model(A.apply_base_dr(base, dr), theta, yaw)
+            env._mjx_model = A.apply_model(A.apply_base_dr(base, dr, self.spec), theta, yaw, self.spec)
             yield
         finally:
             env._mjx_model = base
@@ -97,21 +124,21 @@ class NemesisWrapper(pg_wrapper.Wrapper):
     # --- Fall detection ---
 
     def fallen(self, data):
-        """Real fall: a non-foot body touches the ground, tilt over 45°, the trunk is too low, or the
-        simulation diverged (non-finite state)."""
+        """Real fall: a non-foot body touches the ground, the trunk tilts too far, the root is too
+        low, or the simulation diverged (non-finite state)."""
         c = data.contact
         body = jp.isin(c.geom[:, 0], self._body_geoms) | jp.isin(c.geom[:, 1], self._body_geoms)
         touching = jp.any(body & (c.dist < 0.0)) if self._body_geoms.size else False
-        up_z = data.xmat[A.TRUNK][2, 2]
+        up_z = data.xmat[self.spec.trunk][2, 2]
         diverged = ~(jp.isfinite(data.qpos).all() & jp.isfinite(data.qvel).all())
-        return touching | (up_z < MIN_UP_Z) | (data.qpos[2] < MIN_HEIGHT) | diverged
+        return touching | (up_z < self.min_up_z) | (data.qpos[2] < self.min_height) | diverged
 
     # --- Observations ---
 
     def _obs(self, theta, obs, data, rng, cmd, hist, yaw=0.0):
-        obs = A.perturb_obs(theta, obs, data, rng, cmd, yaw)
+        obs = A.perturb_obs(theta, obs, data, rng, cmd, yaw, self.spec)
         hist = jp.concatenate([obs["state"][None], hist[:-1]], axis=0)
-        priv = jp.concatenate([obs["privileged_state"], C.normalized(theta)])
+        priv = jp.concatenate([obs["privileged_state"], self.layout.normalized(theta)])
         return {"state": hist.reshape(-1), "privileged_state": priv}, hist
 
     # --- Env API ---
@@ -122,11 +149,12 @@ class NemesisWrapper(pg_wrapper.Wrapper):
 
     def reset_with(self, rng, theta, dr=None):
         """Reset under a specific θ (evaluation/replay). dr=None means no base randomization."""
+        sp = self.spec
         dr = A.neutral_base_dr(self.env.unwrapped._mjx_model) if dr is None else dr
         k = jax.random.fold_in(rng, 0x4E4D)  # env.reset gets `rng` untouched, so replays match
         with self._perturbed(theta, dr):
             state = self.env.reset(rng)
-        cmd = A.command(theta, 0.0, state.info["command"])
+        cmd = A.command(theta, 0.0, state.info["command"], sp)
         state.info["command"] = cmd
         state.info.update(
             nemesis_theta=theta, nemesis_dr=dr, nemesis_rng=k,
@@ -138,12 +166,13 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         state.metrics["nemesis_fall"] = jp.zeros(())
         q = state.data.qpos
         yaw = 2 * jp.arctan2(q[6], q[3])
-        hist = jp.zeros((HISTORY, STATE))
+        hist = jp.zeros((HISTORY, self.robot.obs_size))
         obs, hist = self._obs(theta, state.obs, state.data, k, cmd, hist, yaw)
         state.info["nemesis_hist"] = hist
         return state.replace(obs=obs)
 
     def step(self, state, action):
+        sp = self.spec
         info = state.info
         theta, dr, t = info["nemesis_theta"], info["nemesis_dr"], info["nemesis_t"]
         rng, k_obs, k_theta, k_dr = jax.random.split(info["nemesis_rng"], 4)
@@ -155,11 +184,11 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         yaw = 2 * jp.arctan2(q[6], q[3])
         origin = jp.where(t == 0, jp.array([q[0], q[1], yaw]), info["nemesis_origin"])
         dist = (q[0] - origin[0]) * jp.cos(origin[2]) + (q[1] - origin[1]) * jp.sin(origin[2])
-        theta_now = A.with_ice(theta, dist)
+        theta_now = A.with_ice(theta, dist, sp)
 
-        applied, buf = A.delay_action(theta, info["nemesis_buf"], action)
-        xfrc = state.data.xfrc_applied.at[A.TRUNK, :3].set(A.push_force(theta, time, origin[2]))
-        info["command"] = A.command(theta, time, info["command"])
+        applied, buf = A.delay_action(theta, info["nemesis_buf"], action, sp)
+        xfrc = state.data.xfrc_applied.at[sp.trunk, :3].set(A.push_force(theta, time, origin[2], sp))
+        info["command"] = A.command(theta, time, info["command"], sp)
         state = state.replace(data=state.data.replace(xfrc_applied=xfrc))
 
         with self._perturbed(theta_now, dr, origin[2]):
@@ -175,7 +204,7 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         reward = (rewards + extra_term) * self.dt - self._fall_penalty * done
         reward = jp.where(jp.isfinite(reward), reward, -self._fall_penalty)
 
-        cmd = A.command(theta, time + self.dt, state.info["command"])
+        cmd = A.command(theta, time + self.dt, state.info["command"], sp)
         obs, hist = self._obs(theta, state.obs, state.data, k_obs, cmd, state.info["nemesis_hist"],
                               origin[2])
 
