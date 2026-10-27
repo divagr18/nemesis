@@ -26,21 +26,20 @@ OP_FAMILY = {"friction": "friction", "ice_patch": "friction", "payload": "load",
              "velocity_bias": "sensing", "command": None}
 
 
-def allowed_slots(families) -> set[str]:
+def allowed_slots(families, L=C.GO1) -> set[str]:
     """θ slot names an adversary restricted to `families` may perturb (the command profile, i.e.
-    the task, is always allowed). families=None means everything."""
-    from nemesis.perturb import canonical as C
+    the task, is always allowed). families=None means everything. `L` is the robot's θ layout."""
     if families is None:
-        return {s.name for s in C.SLOTS}
+        return {s.name for s in L.SLOTS}
     keep = {"command_mode", "command_a", "command_b", "command_switch"}
     for f in families:
         keep |= set(FAMILIES[f])
     return keep
 
 
-def cause_family(theta: np.ndarray) -> str:
-    dev = np.abs(np.asarray(theta) - C.NEUTRAL) / C.SPAN
-    scores = {fam: max(dev[C.INDEX[s]].max() for s in slots) for fam, slots in FAMILIES.items()}
+def cause_family(theta: np.ndarray, L=C.GO1) -> str:
+    dev = np.abs(np.asarray(theta) - L.NEUTRAL) / L.SPAN
+    scores = {fam: max(dev[L.INDEX[s]].max() for s in slots) for fam, slots in FAMILIES.items()}
     fam, score = max(scores.items(), key=lambda kv: kv[1])
     return fam if score > 1e-6 else "command"  # only the command profile was changed
 
@@ -53,8 +52,8 @@ def fall_direction(fall_gravity: np.ndarray) -> str:
     return "right" if g[1] > 0 else "left"
 
 
-def signature(theta: np.ndarray, eval_result: dict, row: int) -> tuple[str, str]:
+def signature(theta: np.ndarray, eval_result: dict, row: int, L=C.GO1) -> tuple[str, str]:
     """Mode of θ given its evaluation row (only the seeds where the robot fell count)."""
     fell = eval_result["fell"][row].astype(bool)
     g = eval_result["fall_gravity"][row][fell] if fell.any() else eval_result["fall_gravity"][row]
-    return fall_direction(g), cause_family(theta)
+    return fall_direction(g), cause_family(theta, L)
