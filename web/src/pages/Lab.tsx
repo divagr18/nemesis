@@ -17,6 +17,8 @@ const EXAMPLES = [
   "Slippery front feet when it suddenly stops",
 ];
 
+const HUMANOID_READY = false;  // flips on once the humanoid's 3D scene asset is published
+
 const SAMPLES = [
   ["Icy shove", "Make the floor icy and shove it from the left"],
   ["Wet tiles + load", "Wet tiles and a 3 kg backpack"],
@@ -84,12 +86,13 @@ export default function Lab() {
       <div className="grid items-center gap-10 pt-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-14 lg:pt-12">
         <section className="w-full max-w-[440px]">
           <h1 className="font-medium leading-[1.02] tracking-[-0.04em]" style={{ fontSize: "clamp(40px, min(3.7vw, 7vh), 56px)" }}>
-            <span className="block lg:whitespace-nowrap">Break the robot.</span>
-            <span className="block text-mute lg:whitespace-nowrap">Watch it learn.</span>
+            <span className="block lg:whitespace-nowrap">Every robot needs</span>
+            <span className="block lg:whitespace-nowrap">a nemesis.</span>
           </h1>
-          <p className="mt-5 text-base leading-[1.55] text-ink/75">
-            Describe an attack in plain English, say it out loud, or show a photo of a real place. Muse turns it into
-            physics. If the robot falls, retrain it until it doesn't.
+          <p className="mt-4 text-lg leading-snug text-mute lg:whitespace-nowrap">Describe any situation. Watch it fall, then adapt.</p>
+          <p className="mt-4 text-[15px] leading-[1.55] text-ink/70">
+            Type it, say it, or show a photo of a real place. Muse turns it into physics, and if the robot falls, it
+            retrains until it doesn't.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             {SAMPLES.map(([label, text]) => (
@@ -99,7 +102,7 @@ export default function Lab() {
               </button>
             ))}
           </div>
-          <div className="mt-8 flex items-center gap-1 text-[13px]">
+          <div className={`mt-8 flex items-center gap-1 text-[13px] ${HUMANOID_READY ? "" : "hidden"}`}>
             {([["go1", "Quadruped"], ["g1", "Humanoid"], ["both", "Both"]] as const).map(([k, label]) => (
               <button key={k} onClick={() => setRobot(k)} disabled={!!busy}
                 className={`rounded-full px-3 py-1 transition-colors ${robot === k ? "bg-white/10 text-ink" : "text-mute hover:text-ink"}`}>{label}</button>
