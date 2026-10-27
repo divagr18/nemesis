@@ -223,6 +223,28 @@ Schedule:
 - Nov 2–3: video.
 - Nov 4: ship.
 
+## P11: Terrain (stairs and curbs), Oct 27
+
+**Why:** "Can it handle my stairs?" is the most relatable scenario. It makes "Your world" photos of real steps convincing, and it gives the description-to-learning loop a visible, intuitive failure. It also tests the user's hypothesis that structured scenarios like stairs are where Muse beats random search (pre-registered as H-S in docs/PREREGISTRATION.md).
+
+**Design:** K = 8 static **box geoms** added to the scene (MjSpec in `load_env`), repositioned per episode from θ.
+- **Neutral:** the boxes are parked 10 m below the floor.
+- **Stairs:** step i is a box rising from the ground to height (i+1)·h, from `start + i·depth` to the end of the run, along the start heading and 3 m wide. A curb is stairs with count = 1.
+- **Why boxes:** MJX supports sphere–box, capsule–box and box–box collisions natively, and box poses are model fields, so each env in a batch gets its own stairs with no recompile and no heightfield memory (a heightfield per env at 8192 envs is GBs).
+
+| # | Task | Done when |
+|---|---|---|
+| 11.1 | Add K boxes to the Go1 scene (contype/conaffinity like the floor); treat them as "floor" for the fall check (a body touching a step is a fall) and for foot contact | Neutral θ rollouts bit-identical to today; a box placed under the robot is stood on |
+| 11.2 | θ slots appended in the padding: `stairs_height` (0–0.15 m), `stairs_depth` (0.2–0.6 m), `stairs_count` (0–8), `stairs_start` (0.5–3 m). Neutral = no stairs. Bump THETA_LAYOUT_VERSION; existing slot indices unchanged, so old atlases stay valid | Layout test updated; old θ vectors still compile and evaluate the same |
+| 11.3 | `apply_model`: set geom_pos/size/quat for the K boxes in the start-heading frame (same convention as the ice patch) | Box-placement unit test; render shows the stairs where θ says |
+| 11.4 | DSL ops `stairs` and `curb`; a random-program template for the baselines; a `terrain` family in modes and plausibility | DSL round trip; random programs sometimes produce stairs |
+| 11.5 | Overlays (mp4 render) and `export.py` → the 3D replay draws the steps | Clip and replay both show stairs |
+| 11.6 | Verify on `baseline_v2`: curbs of 2/4/6/8/10/12 cm and stairs of 3 × 6 cm; fall rates and clips | Table in LAB_NOTEBOOK |
+| 11.7 | Training: add small random steps to base DR for future policies (optional); Patch should learn curbs it can physically climb | A patched robot climbs a curb that tripped v1 |
+| 11.8 | H-S experiment (below) on AWS | Verdict in docs/results |
+
+Go1 only for now; the G1 gets terrain later via the same registry hook.
+
 ## Stretch slots (pick up after the named gate, in priority order)
 | Slot | Sub-steps | Est. | After | Serves |
 |---|---|---|---|---|

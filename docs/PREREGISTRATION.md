@@ -56,5 +56,25 @@ Context: the main sweep showed that matched-compute DR (w=0.5) ties or beats adv
 - **H-F:** (i) reduces falls on held-out residual failures more than (ii), with gauntlet falls no worse than (ii) + 2 points.
 - **Against H-F:** (i) is not better than (ii) on the held-out residuals, or it is worse on the gauntlet by more than 2 points.
 
+## S: terrain (stairs and curbs): does Muse beat random programs here? (added Oct 27, before any terrain run)
+
+**Motivation:** on flat-ground perturbations, random programs (shuffled) found more strict failures than Nemesis (H-A not supported). The user's hypothesis is that structured physical scenarios, starting with stairs and curbs, are where a model's physical knowledge beats random sampling. A plausible failure there needs coordinated parameters: step height, where the steps start relative to the gait, approach speed and command, and what else is combined with it.
+
+**Setup:**
+- Attack-only runs against `baseline_v2` (untrained) and `arms_final/dr_s1/round_2` (DR-trained).
+- Three arms: `nemesis` (Wonder), `shuffled` (random programs from the same DSL, now including stairs/curb templates) and `box` (CMA over all θ slots, including the terrain slots).
+- 3 seeds each, 18 runs, 10M attack env-steps per run, as in experiment A.
+- The DSL, envelope, templates and prompts are frozen at the commit that adds terrain, before any H-S run.
+
+**Primary metric:**
+- **Strict terrain failures:** strict failures (definition unchanged: total deviation ≤ 1.0, ≤ 3 families, fail rate in [0.5, 0.95)) whose θ has a non-neutral terrain slot.
+- Also reported: all strict failures, strict modes, and the budget curve.
+
+**H-S:** Nemesis finds more strict terrain failures than shuffled on both targets, with non-overlapping seed ranges (same rule as A–F: a favorable difference inside the seed range is INCONCLUSIVE).
+
+**Secondary (descriptive, no verdict):**
+- The minimal curb height that trips each target.
+- Whether Nemesis's terrain failures combine stairs with another family more often than shuffled's do.
+
 ## Not changing after seeing results
 These definitions, thresholds, targets and seeds are fixed by this commit. Any metric added later is labeled post-hoc and reported alongside these.
