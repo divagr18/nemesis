@@ -183,11 +183,14 @@ def test_g1_weak_knee_cannot_exceed_scaled_torque_limit(g1):
     assert torque(0.3) <= 0.3 * limit + 1e-3
 
 
-# --- #5: the evaluator counts the env's own termination ----------------------------------------
+# --- #5 (revised Oct 27): only a real fall ends an evaluation ------------------------------------
+# The audit first counted the env's own termination as a fall, because carrying on restarted the
+# scenario clock. The evaluator now steps with restart=False, so the scenario keeps running, and G1's
+# foot-foot contact (still standing) must not read as "fell".
 
-def test_evaluator_ends_on_env_termination():
+def test_evaluator_counts_only_real_falls():
     from nemesis.sim.evaluate import ended
     s = lambda fall, done: SimpleNamespace(metrics={"nemesis_fall": jp.float32(fall)}, done=jp.float32(done))  # noqa: E731
     assert not bool(ended(s(0, 0)))
     assert bool(ended(s(1, 1))) and bool(ended(s(1, 0)))
-    assert bool(ended(s(0, 1)))  # e.g. G1's feet touching: training ends the episode here too
+    assert not bool(ended(s(0, 1)))  # e.g. G1's feet touching while upright

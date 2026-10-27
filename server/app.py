@@ -638,6 +638,8 @@ class Ctx:
     def clip_path(url: str) -> Path:
         return clip_ready(url)
 
+    lineage = staticmethod(lambda: _lineage_texts())  # defined further down
+
 
 class AgentIn(BaseModel):
     goal: str = Field(default="", max_length=300)
