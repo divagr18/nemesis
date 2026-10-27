@@ -15,7 +15,7 @@ export default function Layout() {
   const v = useVersions();
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-4 z-20 flex justify-center px-3 sm:top-6">
+      <header className="sticky top-3 z-20 flex justify-center px-3 pt-4 sm:top-4 sm:pt-5">
         <div className="flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/[.04] p-1.5 pl-5 shadow-[0_8px_32px_rgba(0,0,0,.45),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-xl backdrop-saturate-150">
           <NavLink to="/" className="mr-3 flex shrink-0 items-center gap-2.5 text-base font-medium tracking-tight">
             <Mark /> <span className="hidden sm:inline">nemesis</span>

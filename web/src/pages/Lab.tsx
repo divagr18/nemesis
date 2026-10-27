@@ -47,25 +47,25 @@ export default function Lab() {
   return (
     <div>
       {/* Hero: copy + attack box (1/3) beside the live replay (2/3), all on the first screen. */}
-      <div className="grid gap-8 pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-12 lg:pt-6">
-        <section className="flex flex-col lg:min-h-[calc(100dvh-11rem)]">
-          <h1 className="text-[44px] font-medium leading-[1.02] tracking-[-0.04em] xl:text-[56px] 2xl:text-[64px]">
-            Try to break<br className="hidden lg:block" /> the robot.
-            <span className="block text-mute">Then watch<br className="hidden lg:block" /> it learn.</span>
+      <div className="grid gap-8 pt-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-12 lg:pt-10">
+        <section className="flex flex-col">
+          <h1 className="text-balance font-medium leading-[0.98] tracking-[-0.04em]" style={{ fontSize: "clamp(36px, min(3.3vw, 6.2vh), 58px)" }}>
+            Try to break the robot.
+            <span className="block text-mute">Then watch it learn.</span>
           </h1>
-          <p className="mt-6 max-w-sm text-[17px] leading-relaxed text-ink/75">
+          <p className="mt-5 max-w-md text-base leading-normal text-ink/75">
             Describe an attack, say it, or show a photo of a real place. Muse turns it into physics. If the robot falls,
             retrain it until it doesn't.
           </p>
-          <div className="mt-8 flex flex-col items-start gap-1">
-            {EXAMPLES.slice(0, 3).map((ex) => (
+          <div className="mt-6 flex flex-wrap gap-2">
+            {["Icy floor + a shove from the left", "Wet tiles and a 3 kg backpack", "Weak back-left knee, downhill"].map((ex) => (
               <button key={ex} onClick={() => setPrefill((p) => ({ text: ex, n: p.n + 1 }))} disabled={!!busy}
-                className="group flex items-center gap-2 py-1.5 text-left text-[15px] text-mute transition-colors hover:text-ink">
-                <ArrowRight size={14} className="text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ember" /> {ex}
+                className="cursor-pointer rounded-full border border-white/12 bg-white/[.04] px-3.5 py-1.5 text-sm text-ink/85 transition-colors hover:border-white/30 hover:bg-white/[.09] hover:text-ink active:scale-[.98] disabled:opacity-40">
+                {ex}
               </button>
             ))}
           </div>
-          <div className="mt-auto pt-8">
+          <div className="mt-auto pt-6">
             <Composer busy={!!busy} examples={EXAMPLES} prefill={prefill}
               onText={(text) => run("Muse Wonder is turning that into physics…", () => post("/api/attack", { text }))}
               onVoice={(wav) => run("Listening, then simulating…", () => upload("/api/attack_voice", "audio", wav, "attack.wav"))}
@@ -82,7 +82,7 @@ export default function Lab() {
           )}
         </section>
 
-        <section className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-line bg-[#0b0d12] lg:aspect-auto lg:min-h-[460px]">
+        <section className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-line bg-[#0b0d12] lg:aspect-auto lg:min-h-[400px] lg:max-h-[calc(100dvh-10rem)]">
           {stage ? (
             <Replay key={JSON.stringify(stage)} trajs={stage.map((t: any, i: number) => ({ url: t.url, label: labels?.[i] || t.label }))} className="absolute inset-0" />
           ) : (
