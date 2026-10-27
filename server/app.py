@@ -385,8 +385,9 @@ async def _retest(job: jobs.Job, version: str):
 async def patch(body: PatchIn, request: Request):
     _rate_limit(request.client.host, per_min=1, bucket="patch")
     attack = _find(body.attack_id)
-    if attack["fall_rate_trained"] == 0.0:
-        raise HTTPException(400, "The live robot already survives this attack.")
+    if not attack["broke_trained"]:
+        # Patch is gated on fixed seeds; an attack that only fells it occasionally can't show a fix.
+        raise HTTPException(400, "This only knocks the robot over occasionally, so there's nothing reliable to train away.")
     if not attack.get("survivable", True):
         raise HTTPException(400, "Physics wins: even our toughest robot falls on this one, so there is nothing to learn.")
     job = jobs.new("patch")

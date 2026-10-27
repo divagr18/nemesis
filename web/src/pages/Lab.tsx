@@ -147,7 +147,7 @@ export default function Lab() {
 
 function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPatch: () => void; patching: boolean }) {
   const fell = r.fall_rate_trained >= 0.5;
-  const canPatch = r.fall_rate_trained > 0 && r.survivable !== false && !after;
+  const canPatch = r.fall_rate_trained >= 0.5 && r.survivable !== false && !after;
   return (
     <div className="rise mt-6">
       {r.reading && (
