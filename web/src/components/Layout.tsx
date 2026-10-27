@@ -14,7 +14,7 @@ export function Mark({ className = "" }) {
 export default function Layout() {
   const v = useVersions();
   return (
-    <div className="min-h-dvh">
+    <div className="flex min-h-dvh flex-col">
       <header className="sticky top-3 z-20 flex justify-center px-3 pt-4 sm:top-4 sm:pt-5">
         <div className="flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/[.04] p-1.5 pl-5 shadow-[0_8px_32px_rgba(0,0,0,.45),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-xl backdrop-saturate-150">
           <NavLink to="/" className="mr-3 flex shrink-0 items-center gap-2.5 text-base font-medium tracking-tight">
@@ -31,8 +31,8 @@ export default function Layout() {
           {v && <span className="ml-2 hidden shrink-0 rounded-full bg-white/[.06] px-3.5 py-2 font-mono text-[13px] text-mute md:block">{v.live}</span>}
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-5 pt-8 pb-24 sm:px-8"><Outlet /></main>
-      <footer className="mx-auto flex max-w-7xl flex-wrap justify-between gap-4 border-t border-line px-5 py-8 text-xs text-faint sm:px-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-5 pt-8 pb-24 sm:px-8"><Outlet /></main>
+      <footer className="mx-auto flex w-full max-w-7xl flex-wrap justify-between gap-4 border-t border-line px-5 py-8 text-xs text-faint sm:px-8">
         <span>Muse Wonder · Muse Spark · Muse Voice Transcribe · Muse Glimmer · MuJoCo MJX</span>
         <a className="hover:text-mute" href="https://github.com/divagr18/nemesis">source</a>
       </footer>
