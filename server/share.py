@@ -115,23 +115,15 @@ def _truncate(s: str, n: int) -> str:
     return cut.rstrip(" ,.;:") + "…"
 
 
-def post_text(r: dict, fixed_in: str | None) -> str:
-    """The X post, written the way a person would post it (the intent adds the link): a challenge to
-    Meta's Muse to keep its hardened robot standing, the sentence, and how it went."""
+def post_text(r: dict) -> str:
+    """The X post, the way a person would write it (the intent adds the link): I challenged Muse, I
+    won or lost, with this sentence. Won = the live robot fell (the page's "fell")."""
     bot = "humanoid" if r.get("robot") == "g1" else "robot dog"
-    hardened = r.get("version") not in (None, "v1")  # the live robot has been retrained on earlier falls
-    nb, nl = (round((r.get(k) or 0) * SEEDS) for k in ("fall_rate_baseline", "fall_rate_trained"))
-    times = lambda n: "every time" if n >= SEEDS else "once out of {}".format(SEEDS) if n == 1 else f"{n} times out of {SEEDS}"  # noqa: E731
-    head = f"Challenged {META} to keep its {'hardened ' if hardened else ''}{bot} on its feet. "
-    if nl:
-        body = "One sentence knocked it over {times}:\n\n“{s}”".replace("{times}", times(nl))
-    elif nb:
-        body = "“{s}” floored the original, but the hardened one stayed up."
-    else:
-        body = "Threw “{s}” at it. Didn't budge."
-    tail = "\n\nYour turn:"
-    room = X_LIMIT - X_URL - 1 - len(head) - (len(body) - 3) - len(tail)
-    return head + body.replace("{s}", _truncate(_sentence(r), max(24, room))) + tail
+    result = "won" if r.get("broke_trained") or (r.get("fall_rate_trained") or 0) >= 0.5 else "lost"
+    head = f"I challenged {META} to keep its {bot} standing, and I {result} with “"
+    tail = "”\n\nYour turn:"
+    room = X_LIMIT - X_URL - 1 - len(head) - len(tail)
+    return head + _truncate(_sentence(r), max(24, room)) + tail
 
 
 # ---- public record ---------------------------------------------------------------------------------
@@ -143,7 +135,7 @@ def public(r: dict) -> dict:
     out["status"] = A.versions.status().get(r["id"], {}) if r.get("robot", "go1") == "go1" else {}
     out["fixed_in"] = _fixed_in(r)
     out["outcome"] = _plain(outcome(r, out["fixed_in"]))
-    out["post"] = post_text(r, out["fixed_in"])
+    out["post"] = post_text(r)
     out["share"] = {"page": f"{PUBLIC_URL}/a/{r['id']}", "image": f"{PUBLIC_URL}/og/{r['id']}.png",
                     "video": f"/v/{r['id']}.mp4", "gif": f"/g/{r['id']}.gif"}
     return out
