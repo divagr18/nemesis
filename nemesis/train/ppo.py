@@ -84,12 +84,14 @@ def train(
     nemesis: bool = True,
     learning_rate: float | None = None,
     num_eval_envs: int | None = None,
+    stop_fn=None,
 ):
     """Trains a policy.
 
     nemesis=True trains through NemesisWrapper (body collisions, strict falls, unclipped reward,
     obs history, theta-aware critic, per-episode DR) on nominal scenarios unless `env` is given.
     Pass `env`/`eval_env` (already NemesisWrapper-wrapped) to train on a scenario bank.
+    `stop_fn(step, params) -> bool` is called after every checkpoint; True ends training there.
     """
     from nemesis.perturb.wrapper import NemesisWrapper
 
@@ -126,23 +128,33 @@ def train(
         print(f"step {step:>12,}  reward {row.get('eval/episode_reward', float('nan')):8.2f}"
               f"  t={row['elapsed_s']:7.1f}s", flush=True)
 
+    class _Stop(Exception):
+        pass
+
     def save_ckpt(step, _make_policy, policy_params):
+        host = jax.device_get(policy_params)
         with open(run_dir / "ckpts" / f"{int(step):012d}.pkl", "wb") as f:
-            pickle.dump(jax.device_get(policy_params), f)
+            pickle.dump(host, f)
+        if stop_fn is not None and stop_fn(int(step), host):
+            raise _Stop  # Brax calls this between epochs, outside jit, so this unwinds cleanly
 
     kw = {k: v for k, v in params.items() if k != "network_factory"}
-    make_inference_fn, policy_params, _ = ppo.train(
-        environment=env,
-        eval_env=eval_env,
-        wrap_env_fn=wrapper.wrap_for_brax_training,
-        network_factory=functools.partial(ppo_networks.make_ppo_networks, **params.network_factory),
-        randomization_fn=registry.get_domain_randomizer(env_name) if domain_randomization else None,
-        progress_fn=progress,
-        policy_params_fn=save_ckpt,
-        restore_params=restore_params,
-        seed=seed,
-        **kw,
-    )
+    try:
+        make_inference_fn, policy_params, _ = ppo.train(
+            environment=env,
+            eval_env=eval_env,
+            wrap_env_fn=wrapper.wrap_for_brax_training,
+            network_factory=functools.partial(ppo_networks.make_ppo_networks, **params.network_factory),
+            randomization_fn=registry.get_domain_randomizer(env_name) if domain_randomization else None,
+            progress_fn=progress,
+            policy_params_fn=save_ckpt,
+            restore_params=restore_params,
+            seed=seed,
+            **kw,
+        )
+    except _Stop:
+        make_inference_fn = policy_params = None
+        print(f"stopped early at {last_step[0]:,} env steps", flush=True)
     metrics_f.close()  # Brax calls policy_params_fn after the final eval, so the last ckpt exists.
     print(f"done in {time.time() - t0:.0f}s ({last_step[0]:,} env steps) -> {run_dir}", flush=True)
     return make_inference_fn, policy_params, last_step[0]  # Brax rounds the budget up; this is actual

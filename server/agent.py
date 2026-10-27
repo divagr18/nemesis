@@ -1,4 +1,4 @@
-"""Agent mode: Muse Wonder red-teams the live robot on its own, with tools, and narrates.
+"""Autopilot: Muse Wonder tests the live robot on its own, with tools, and narrates.
 
 Wonder runs a native function-calling loop (Responses API, chained with previous_response_id):
 
@@ -7,7 +7,7 @@ Wonder runs a native function-calling loop (Responses API, chained with previous
   measure_margin   bisects one condition between nominal and the failure: the safety margin
   watch            Muse Spark watches the failure clip and says what physically went wrong
   patch            fine-tunes the live robot on failures (regression-gated), then re-tests them
-  finish           a short red-team summary
+  finish           a short summary of what it found
 
 Every narration, tool call and result is emitted as a job event, so the page shows the agent
 thinking, testing, diagnosing and fixing live.
@@ -28,7 +28,7 @@ MAX_TURNS = 14
 SEARCH = {"pop": 24, "gens": 8, "seeds": 8}
 CONFIRM_SEEDS = 32
 
-INSTRUCTIONS = """You are Nemesis, an autonomous red team for a walking robot. You attack the LIVE
+INSTRUCTIONS = """You are Autopilot, Nemesis's autonomous tester for a walking robot. You test the LIVE
 policy of a simulated Unitree Go1 to find the most plausible physical conditions that make it fall,
 explain why, and get it fixed. Work like a careful robotics engineer running an investigation:
 

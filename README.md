@@ -2,7 +2,7 @@
 
 **Every robot needs a nemesis.**
 
-Nemesis is a red team for walking robots that anyone can use. Describe an attack in plain English, say it out loud, or photograph a real place. Meta's Muse models turn it into physics, and a Unitree Go1 runs it in MuJoCo. If the robot falls, one click retrains it until it doesn't, and every fix is regression-tested before it goes live. An autonomous agent does the same on its own and writes up what it found.
+Nemesis lets anyone put a walking robot in a situation and watch it learn. Describe the situation in plain English, say it out loud, or photograph a real place. Meta's Muse models turn it into physics, and a Unitree Go1 runs it in MuJoCo. If the robot falls, one click retrains it until it doesn't, and every fix is regression-tested before it goes live. An autonomous agent does the same on its own and writes up what it found.
 
 | | What you do | What happens |
 |---|---|---|
@@ -10,7 +10,7 @@ Nemesis is a red team for walking robots that anyone can use. Describe an attack
 | **Patch it** | Click **Train it to survive this** | Nemesis fine-tunes the live robot (PPO on GPU) on your attack, 48 nearby variants and every earlier lesson. A **regression gate** then checks three things: the attack is fixed, the robot still walks, and nothing on a locked 52-scenario gauntlet got worse. Only then does it become the new live version and replay your attack. |
 | **Your world** | Upload a photo or video of a place | **Muse Spark** reads the surface, slipperiness and slope ("packed ice and slush, μ≈0.2"). The robot is tested in that environment. |
 | **Agent mode** | Click **Start investigation** | Wonder runs a tool-using investigation live. It forms hypotheses, searches each attack program with CMA-ES for the most plausible failure, and drops the ones that don't hold. Spark watches every fall, Nemesis measures the safety margin ("falls begin at 108 N"), and the robot is retrained. |
-| **Report** | Open the red-team report | A pentest-style report for any robot version: failure families, top findings with clips, Spark's diagnoses, safety margins, and deployment recommendations written by Wonder ("do not deploy below μ 0.29 while turning"). |
+| **Readiness** | Open the Readiness report | A report for any robot version: failure families, top findings with clips, Spark's diagnoses, safety margins, and deployment recommendations written by Wonder ("do not deploy below μ 0.29 while turning"). |
 | **Community** | Just attack it | The robot learns from everyone. Every few successful attacks trigger a community retrain. A lineage view tracks versions, the Hall of Fame shows which version each attack broke, and the leaderboard rewards the *subtlest* attack. |
 | **Open weights** | `NEMESIS_OPEN=1` | The whole loop runs offline on **Muse Glimmer** on one 24 GB GPU, no API key needed ([details](#fully-open-weight-mode)). |
 
@@ -65,7 +65,7 @@ Every attack is also run against our toughest policy. If even that one falls alm
 
 | Model | Role |
 |---|---|
-| **Muse Wonder** (`muse-wonder-1.0`) | Turns visitors' plain-English attacks into physics programs. Runs agent mode as a native tool-calling agent (search, margin, watch, patch). Writes the hypotheses of the automated hunt and the red-team reports. |
+| **Muse Wonder** (`muse-wonder-1.0`) | Turns visitors' plain-English attacks into physics programs. Runs agent mode as a native tool-calling agent (search, margin, watch, patch). Writes the hypotheses of the automated hunt and the Readiness reports. |
 | **Muse Spark 1.3** (image + video input) | Watches failure clips and names the mode ("lateral shove front-leg buckle"). Reads photos of real places into physical parameters (Your world). Its observations steer Wonder. |
 | **Muse Voice Transcribe** | Spoken attacks on the page. |
 | **Muse Glimmer** (open weights, self-hosted via llama.cpp) | Drop-in open-weight adversary (`--proposer glimmer`). With `NEMESIS_OPEN=1` it also translates attacks and watches clips (see [Fully open-weight mode](#fully-open-weight-mode)). |
@@ -83,7 +83,7 @@ Every attack is also run against our toughest policy. If even that one falls alm
 
 ### Honest science: Nemesis vs domain randomization
 
-We compared five arms at a matched env-step budget: DR, random search, full-union CMA-ES, blind random programs, and Nemesis. That's 3 seeds × 3 rounds each, evaluated on a gauntlet whose hash was committed before any result. Then we **pre-registered** six follow-up experiments mapping where an LLM red team helps and where it doesn't ([`docs/PREREGISTRATION.md`](docs/PREREGISTRATION.md)).
+We compared five arms at a matched env-step budget: DR, random search, full-union CMA-ES, blind random programs, and Nemesis. That's 3 seeds × 3 rounds each, evaluated on a gauntlet whose hash was committed before any result. Then we **pre-registered** six follow-up experiments mapping where LLM-written scenarios help and where they don't ([`docs/PREREGISTRATION.md`](docs/PREREGISTRATION.md)).
 
 The arms:
 - **dr**: uniform domain randomization over the envelope.
@@ -190,7 +190,7 @@ The service ([`server/`](server)) is a FastAPI app:
 - `patch_worker.py`: Patch training and the regression gate, run in a subprocess with its own GPU memory.
 - `agent.py`: agent mode.
 - `world.py`: Your world.
-- `report.py`: red-team reports.
+- `report.py`: Readiness reports.
 - `jobs.py`: background jobs, streamed to the page as resumable server-sent events.
 
 The web app ([`web/`](web)) is Vite + React + Tailwind: Break it, You vs Muse, Agent and Report. It builds to `web/dist`, which the server serves (`cd web && npm install && npm run build`). The 3D replay is three.js playing back poses exported from the simulator (`nemesis/sim/export.py`).

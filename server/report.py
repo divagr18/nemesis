@@ -1,6 +1,6 @@
-"""Red-team report for one robot version: what breaks it, why, by how much margin, and what got fixed.
+"""Readiness report for one robot version: what breaks it, why, by how much margin, and what got fixed.
 
-Built like a penetration-test report, from everything the service has seen (typed, spoken and
+Built like an engineering readiness review, from everything the service has seen (typed, spoken and
 photographed attacks, and the agent's findings):
 
   - headline numbers: attacks tested, how many break the original and the live robot, fall rate
@@ -39,7 +39,7 @@ SUMMARY_SCHEMA = {
     "additionalProperties": False,
 }
 
-SUMMARY_PROMPT = """You are writing the executive summary of a red-team report on a walking robot policy
+SUMMARY_PROMPT = """You are writing the executive summary of a readiness report on a walking robot policy
 (Unitree Go1 quadruped, simulated in MuJoCo). Below is the data: every attack tried, the failure
 families, the top findings with their safety margins (the condition value where falls begin) and
 Muse Spark's video diagnoses, and the robot's lineage (each version was retrained on attacks that

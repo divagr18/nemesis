@@ -51,7 +51,7 @@ POLICY = os.environ.get("NEMESIS_POLICY", "runs/baseline_v2")
 REFERENCE = os.environ.get("NEMESIS_REFERENCE", "runs/arms_final/dr_s1/round_2")
 UNSURVIVABLE = 0.9
 RATE_PER_MIN = int(os.environ.get("NEMESIS_RATE_PER_MIN", "3"))
-PATCH_STEPS = int(os.environ.get("NEMESIS_PATCH_STEPS", "20000000"))
+PATCH_STEPS = int(os.environ.get("NEMESIS_PATCH_STEPS", "8000000"))  # worst case ~6 min on a T4; most fixes stop early
 PATCH_MEM = os.environ.get("NEMESIS_PATCH_MEM_FRACTION", "0.6")
 COMMUNITY_BATCH = int(os.environ.get("NEMESIS_COMMUNITY_BATCH", "5"))  # auto-retrain after this many new breaks
 SEEDS = 4
@@ -974,7 +974,7 @@ async def get_envelope(attack_id: str, which: str = Query("", alias="versions"))
     return _envelopes[key]
 
 
-# ---- Red-team report ---------------------------------------------------------------------------
+# ---- Readiness report ---------------------------------------------------------------------------
 
 REPORTS = ROOT / "reports"
 

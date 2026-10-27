@@ -3,7 +3,7 @@
 Video plus product are about half the score: Demo counts 25%, and judges use the video when scoring the other three criteria. The final round judges watch it live. The X cut also competes for the $20k Most Viral prize, and the live page drives the community vote.
 
 ## The idea (v3, Oct 27: product story)
-**Try to break the robot. Then watch it learn.** Nemesis is a red team for robots that anyone can use:
+**Try to break the robot. Then watch it learn.** Nemesis lets anyone put a robot in a situation and watch it learn:
 - type it, say it, or photograph a place;
 - Meta's models turn that into physics;
 - the robot falls;
@@ -17,7 +17,7 @@ This is a tech hackathon, so the benchmark gets one credibility line, not a sect
 1. **It learns on camera.** A spoken attack ("a hard shove from the left while it walks") → the robot falls in the 3D replay → **Train it to survive this** → progress bar → regression gate ✓✓✓ → the same attack, same seed, and it catches itself.
 2. **Your world.** A phone photo of a real place: a wet monsoon street, polished stairs landing or a ramp. Spark reads it ("packed ice and slush, μ≈0.2"), and the simulated robot is tested there.
 3. **The investigator.** Agent mode: Wonder narrates hypotheses, tests them, rejects the ones that fail ("held, hypothesis refuted"), has Spark watch the falls, measures the margin ("falls begin at 108 N") and retrains the robot. All of it is live trace.
-4. **The verdict.** The red-team report: "DO NOT DEPLOY on surfaces below μ 0.29 while turning faster than 1 rad/s."
+4. **The verdict.** The Readiness report: "DO NOT DEPLOY on surfaces below μ 0.29 while turning faster than 1 rad/s."
 5. **Any robot, any model.** The same pipeline on a humanoid, and the whole loop offline on Muse Glimmer on one GPU.
 
 ## Script (target 2:55; about 400 words of VO)
@@ -30,9 +30,9 @@ This is a tech hackathon, so the benchmark gets one credibility line, not a sect
 | 0:22–0:55 | **Wow 1: break it, fix it** | Screen recording: mic → Voice Transcribe caption → Wonder's compiled physics → 3D replay, v1 falls (crimson ring) → **Train it to survive this** → gate checklist → same attack: falls → holds. | "Say an attack. Muse Wonder turns it into physics, and the robot falls. One click and Nemesis retrains it on that attack and dozens of variations, checks it didn't get worse anywhere else, and replays it. Now it holds." |
 | 0:55–1:15 | **Wow 2: your world** | Phone photo of a real place, then Spark's reading types out, then the robot on that surface. | "Or show it a place. Muse Spark reads the surface and slope from a photo, and the robot is tested right there." |
 | 1:15–1:55 | **Wow 3: the investigator** | Agent trace streaming next to the replay: hypothesis → CMA-ES search → refuted / broke it → Spark: "front legs buckle, torso pitches forward" → margin bars → patch → v3. | "Or let Nemesis attack on its own. Wonder forms hypotheses, tests them, throws out the wrong ones, has Spark watch every fall, measures exactly how much margin is left, and retrains the robot." |
-| 1:55–2:10 | **Wow 4: the verdict** | Red-team report scrolls: headline, margins, "DO NOT DEPLOY below…". | "Then it writes the report a safety engineer would: what breaks it, why, and where it's safe to deploy." |
+| 1:55–2:10 | **Wow 4: the verdict** | Readiness report scrolls: headline, margins, "DO NOT DEPLOY below…". | "Then it writes the report a safety engineer would: what breaks it, why, and where it's safe to deploy." |
 | 2:10–2:25 | **It learns from everyone** | Lineage v1→vN, leaderboard, Hall of Fame cards flipping from "fell" to "held". | "Every attack anyone finds becomes the next robot's lesson, and every version is regression-tested on a locked 52-scenario gauntlet." [number from the lineage] |
-| 2:25–2:42 | **Wow 5: any robot, any model** | Humanoid shoved and falling, then retrained. Terminal: `NEMESIS_OPEN=1`, Glimmer running, no API key. | "It works on a humanoid too. And the whole red team runs offline on Muse Glimmer, Meta's open-weight model, on a single GPU." |
+| 2:25–2:42 | **Wow 5: any robot, any model** | Humanoid shoved and falling, then retrained. Terminal: `NEMESIS_OPEN=1`, Glimmer running, no API key. | "It works on a humanoid too. And the whole loop runs offline on Muse Glimmer, Meta's open-weight model, on a single GPU." |
 | 2:42–2:55 | **Close + CTA** | The robot crossing ice, catching itself. URL. | "Robots shouldn't discover their weaknesses in the real world. Try to break ours." |
 | End card | | Built during the hackathon · MuJoCo Playground (DeepMind), Brax, evosax, three.js · Muse Wonder, Muse Spark, Muse Voice Transcribe, Muse Glimmer · repo · nemesis.divagr.com · @divagr1925 | One line: *validated in a pre-registered study (repo).* |
 

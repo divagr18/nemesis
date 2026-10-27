@@ -96,7 +96,7 @@ push_state() {  # $1 ip; copy the PC's served lineage to the box (when missing o
 }
 
 install() {  # $1 ip  $2 hostname
-  "${SSH[@]}" "ubuntu@$1" "HOST=$2 SERVE_DIR=$SERVE_DIR bash -s" <<'EOF'
+  "${SSH[@]}" "ubuntu@$1" "HOST='$2' SERVE_DIR=$SERVE_DIR bash -s" <<'EOF'
 set -e
 cd ~/muse
 cloud-init status --wait >/dev/null 2>&1 || true
@@ -107,7 +107,8 @@ if ! command -v caddy >/dev/null; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
   sudo apt-get update -y >/dev/null && sudo apt-get install -y caddy >/dev/null
 fi
-printf '%s {\n  encode gzip\n  reverse_proxy localhost:8000 {\n    flush_interval -1\n  }\n}\n' "$HOST" | sudo tee /etc/caddy/Caddyfile >/dev/null
+# HTTP-01 only: TLS-ALPN cannot pass through a proxy in front of the box.
+printf '%s {\n  tls {\n    issuer acme {\n      disable_tlsalpn_challenge\n    }\n  }\n  encode gzip\n  reverse_proxy localhost:8000 {\n    flush_interval -1\n  }\n}\n' "$HOST" | sudo tee /etc/caddy/Caddyfile >/dev/null
 sudo tee /etc/systemd/system/nemesis.service >/dev/null <<UNIT
 [Unit]
 Description=Nemesis public service
@@ -135,12 +136,13 @@ case "${1:-}" in
   up)
     start
     IP=$(eip)
-    HOST=${NEMESIS_DOMAIN:-${IP//./-}.sslip.io}
+    # The domain (A record -> the Elastic IP, DNS only) plus an sslip.io fallback.
+    HOST="${NEMESIS_DOMAIN:-nemesis.divagr.com}, ${IP//./-}.sslip.io"
     for _ in $(seq 1 40); do "${SSH[@]}" "ubuntu@$IP" true 2>/dev/null && break; sleep 5; done
     push_code "$IP" && push_runs "$IP" || exit 1
     "${SSH[@]}" "ubuntu@$IP" "test -d ~/muse/$SERVE_DIR" && [ -z "${STATE_COPY:-}" ] || push_state "$IP"
     install "$IP" "$HOST"
-    echo "live at https://$HOST (first request compiles for a minute or two)" ;;
+    echo "live at https://${HOST%%,*} (first request compiles for a minute or two)" ;;
   update)
     IP=$(ip); sg >/dev/null
     push_code "$IP" && "${SSH[@]}" "ubuntu@$IP" 'sudo systemctl restart nemesis' && echo "updated" ;;
