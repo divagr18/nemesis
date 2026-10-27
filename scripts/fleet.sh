@@ -44,7 +44,7 @@ case "${1:-}" in
     for sn in $(aws ec2 describe-subnets --region "$region" --filters Name=vpc-id,Values="$vpc" Name=default-for-az,Values=true --query 'Subnets[].SubnetId' --output text); do
       while [ $got -lt "$n" ]; do
         id=$(aws ec2 run-instances --region "$region" --image-id "$ami" --instance-type "$TYPE" --key-name nemesis \
-          --subnet-id "$sn" --security-group-ids "$sg" --instance-initiated-shutdown-behavior terminate \
+          --subnet-id "$sn" --security-group-ids "$sg" --instance-initiated-shutdown-behavior stop \
           --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=150,VolumeType=gp3,DeleteOnTermination=true}' \
           --user-data "fileb://$(cygpath -m "$ROOT/scripts/aws_userdata.sh")" \
           --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=nemesis-fleet},{Key=project,Value=nemesis}]' \
