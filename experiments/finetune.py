@@ -54,6 +54,7 @@ def history_failures(archive, hunt_dir: Path, per_program: int, seed: int = 0) -
     out = []
     for rec in archive.failures():
         hist = pickle.load(open(hunt_dir / f"history_{rec['id']}.pkl", "rb"))
+        hist = hist["gens"] if isinstance(hist, dict) else hist
         cands = np.concatenate([g["thetas"][g["fail_rate"] >= SEARCH_FAIL] for g in hist])
         if len(cands):
             out.append(cands[rng.permutation(len(cands))[:per_program]])

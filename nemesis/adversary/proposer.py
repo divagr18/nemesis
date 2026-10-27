@@ -66,9 +66,13 @@ def _round_prompt(n: int, history: list[dict], observations: list[str]) -> str:
 
 
 def propose(n: int = 8, history: list[dict] | None = None, observations: list[str] | None = None,
-            model: str = config.WONDER, seed: int = 0) -> list[Program]:
-    """Returns up to n valid, compilable programs."""
+            model: str = config.WONDER, seed: int = 0, families=None) -> list[Program]:
+    """Returns up to n valid, compilable programs (only ops from `families` if given)."""
+    from nemesis.adversary.modes import OP_FAMILY
     prompt = _round_prompt(n, history or [], observations or [])
+    if families is not None:
+        ops = sorted(op for op, f in OP_FAMILY.items() if f is None or f in families)
+        prompt += f"\n\nIn this session you may ONLY use these ops: {', '.join(ops)}."
     prompt += f"\n\n(proposal round seed {seed})"
     raw = client.respond(prompt, model=model, instructions=system_prompt(), reasoning="medium",
                          tag="nemesis/propose")
@@ -81,6 +85,9 @@ def propose(n: int = 8, history: list[dict] | None = None, observations: list[st
         fixed, _ = _parse(raw)
         names = {p.name for p in programs}
         programs += [p for p in fixed if p.name not in names]
+    if families is not None:
+        programs = [p for p in programs if all(OP_FAMILY[o.op] is None or OP_FAMILY[o.op] in families
+                                               for o in p.ops)]
     return programs[:n]
 
 

@@ -43,17 +43,26 @@ def envelope(width: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
     return lo.astype(np.float32), hi.astype(np.float32)
 
 
-def random_thetas(n: int, rng: np.random.Generator, width: float = 1.0) -> np.ndarray:
-    """Uniform over the (scaled) envelope, including the command profile."""
+def random_thetas(n: int, rng: np.random.Generator, width: float = 1.0, families=None) -> np.ndarray:
+    """Uniform over the (scaled) envelope, including the command profile; slots outside the allowed
+    families stay nominal."""
+    from nemesis.adversary.modes import allowed_slots
     lo, hi = envelope(width)
-    return rng.uniform(lo, hi, size=(n, C.D)).astype(np.float32)
+    th = rng.uniform(lo, hi, size=(n, C.D)).astype(np.float32)
+    keep = allowed_slots(families)
+    for s in C.SLOTS:
+        if s.name not in keep:
+            th[:, C.INDEX[s.name]] = C.NEUTRAL[C.INDEX[s.name]]
+    return th
 
 
 class BoxProgram:
     """Searches every non-task θ slot directly (full-union CMA); quacks like dsl.Compiled."""
 
-    def __init__(self):
-        self.idx = np.array([i for s in C.SLOTS if s.name not in TASK_SLOTS
+    def __init__(self, families=None):
+        from nemesis.adversary.modes import allowed_slots
+        keep = allowed_slots(families)
+        self.idx = np.array([i for s in C.SLOTS if s.name not in TASK_SLOTS and s.name in keep
                              for i in range(C.INDEX[s.name].start, C.INDEX[s.name].stop)])
         self.base = _task_theta()
         self.names = [f"theta[{i}]" for i in self.idx]
@@ -95,11 +104,14 @@ _TEMPLATES = {
 }
 
 
-def random_program(n_ops: int, seed: int) -> Program:
+def random_program(n_ops: int, seed: int, families=None) -> Program:
     """A blind program with n_ops perturbation ops (plus the forward task), ≤ K_MAX free params."""
+    from nemesis.adversary.modes import OP_FAMILY
     r = random.Random(seed)
+    pool = [op for op in _TEMPLATES if families is None or OP_FAMILY[op] in families]
+    n_ops = min(n_ops, len(pool))
     while True:
-        ops = [FORWARD] + [{"op": op, **_TEMPLATES[op](r)} for op in r.sample(list(_TEMPLATES), n_ops)]
+        ops = [FORWARD] + [{"op": op, **_TEMPLATES[op](r)} for op in r.sample(pool, n_ops)]
         p = Program.model_validate({"name": f"shuffled_{seed}", "hypothesis": "random control", "ops": ops})
         try:
             if compile_program(p).k <= K_MAX:

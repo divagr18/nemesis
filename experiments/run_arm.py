@@ -77,6 +77,7 @@ def check_and_archive(ev, params, thetas, names, rnd, archive, ledger, source, e
         found = fail_rate >= cmaes.FAIL_RATE
         mode = signature(th, res, j) if found else None
         rec = archive.add(round=rnd, name=names[j], found=found, fail_rate=fail_rate, theta=th,
+                          attack_steps=ledger.steps["attack"],
                           cost=float(cmaes.plausibility_cost(th[None])[0]), theta_desc=C.describe(th),
                           mode=list(mode) if mode else None, source=source,
                           hypothesis=(extra or {}).get(names[j], {}).get("hypothesis", ""),
@@ -96,8 +97,8 @@ def attack(arm, ev, params, rnd, args, archive, ledger, out, observations):
     if arm == "random":
         batch_cost = args.pop * args.per_round * args.search_seeds * ev.horizon
         while budget - used() >= batch_cost:
-            th = random_thetas(args.pop * args.per_round, rng, width=1.0)
-            res = ev(params, th, seeds=args.search_seeds, key=rnd)
+            th = random_thetas(args.pop * args.per_round, rng, width=1.0, families=args.families)
+            res = ev(params, th, seeds=args.search_seeds, key=args.seed * 100 + rnd)
             ledger.charge("attack", len(th) * args.search_seeds * ev.horizon)
             cands = [th[i] for i in np.flatnonzero(res["fell"].mean(1) >= cmaes.SEARCH_FAIL)][:32]
             list(check_and_archive(ev, params, cands, [f"random_r{rnd}"] * len(cands), rnd, archive, ledger, arm))
@@ -113,17 +114,23 @@ def attack(arm, ev, params, rnd, args, archive, ledger, out, observations):
             break
         extra = {}
         if arm == "nemesis":
-            programs = propose(n=args.per_round, history=archive.history_for_prompt(),
+            programs = propose(n=args.per_round,
+                               history=[] if args.no_history else archive.history_for_prompt(),
                                observations=observations, seed=args.seed * 100 + rnd * 10 + batch,
-                               model=args.proposer)
+                               model=args.proposer, families=args.families)
             for p in programs:
                 extra[p.name] = {"hypothesis": p.hypothesis}
             compiled = [compile_program(p) for p in programs]
         elif arm == "shuffled":
-            compiled = [compile_program(random_program(int(rng.integers(1, 4)), int(rng.integers(1e9))))
+            compiled = [compile_program(random_program(int(rng.integers(1, 4)), int(rng.integers(1e9)),
+                                                       families=args.families))
                         for _ in range(args.per_round)]
         elif arm == "box":
-            compiled = [BoxProgram() for _ in range(args.per_round)]  # independent restarts
+            compiled = [BoxProgram(args.families) for _ in range(args.per_round)]  # independent restarts
+        if not compiled:
+            batch += 1
+            continue
+        batch_start = ledger.steps["attack"]
         results = cmaes.search_many(ev, params, compiled, pop=args.pop, gens=gens_now,
                                     seeds=args.search_seeds, key=args.seed * 100 + rnd * 10 + batch,
                                     slots=args.per_round)
@@ -137,7 +144,7 @@ def attack(arm, ev, params, rnd, args, archive, ledger, out, observations):
             name = r.program.program.name if getattr(r.program, "program", None) else f"{arm}_r{rnd}_{batch}_{k}"
             thetas.append(th), names.append(name)
             with open(out / f"history_r{rnd}_b{batch}_k{k}.pkl", "wb") as f:
-                pickle.dump(r.history, f)
+                pickle.dump({"start": batch_start, "per_gen": per_gen, "program": name, "gens": r.history}, f)
         for rec in check_and_archive(ev, params, thetas, names, rnd, archive, ledger, arm, extra):
             if arm == "nemesis" and rec["found"] and not args.no_observe:
                 clip = out / "clips" / f"r{rnd}_{rec['id']}.mp4"
@@ -155,6 +162,7 @@ def history_bank(out: Path, seed: int, per_program: int = 32) -> np.ndarray:
     parts = []
     for f in sorted(out.glob("history_r*.pkl")):
         hist = pickle.load(open(f, "rb"))
+        hist = hist["gens"] if isinstance(hist, dict) else hist
         cands = np.concatenate([g["thetas"][g["fail_rate"] >= cmaes.SEARCH_FAIL] for g in hist])
         parts.append(cands[rng.permutation(len(cands))[:per_program]])
     return np.concatenate(parts) if parts else np.zeros((0, C.D), np.float32)
@@ -178,9 +186,14 @@ def main():
     ap.add_argument("--horizon", type=int, default=250)
     ap.add_argument("--no-observe", action="store_true")
     ap.add_argument("--lr", type=float, default=1e-4, help="fine-tuning learning rate (resume)")
+    ap.add_argument("--attack-only", action="store_true", help="attack --base; no fine-tuning")
+    ap.add_argument("--families", default=None,
+                    help="comma-separated perturbation families the adversary may use (default: all)")
+    ap.add_argument("--no-history", action="store_true", help="nemesis ablation: no attack history in the prompt")
     ap.add_argument("--proposer", default=config.WONDER,
                     help="nemesis arm's proposer: muse-wonder-1.0 (API) or glimmer (open weights, llama.cpp)")
     args = ap.parse_args()
+    args.families = args.families.split(",") if args.families else None
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -196,6 +209,12 @@ def main():
         params = load_params(policy)
         if args.arm != "dr":
             attack(args.arm, ev, params, rnd, args, archive, ledger, out, observations)
+        if args.attack_only:
+            (out / "budget.json").write_text(json.dumps({"steps": ledger.steps, "modes": len(ledger.modes),
+                                                         "failures": len(archive.failures()),
+                                                         "target": policy}, indent=1))
+            print(f"attack-only round {rnd} done: {len(archive.failures())} failures, steps {ledger.steps}", flush=True)
+            continue
 
         ft_steps = args.ft_steps
         if args.arm == "dr":

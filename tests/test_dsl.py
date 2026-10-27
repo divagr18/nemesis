@@ -93,3 +93,19 @@ def test_vectorized_theta_matches_scalar():
     box = BoxProgram()
     U = np.random.default_rng(1).random((3, box.width)).astype(np.float32)
     np.testing.assert_allclose(box.theta_units(U), np.stack([np.asarray(box.theta_unit(u)) for u in U]), atol=1e-5)
+
+
+def test_family_restriction():
+    from nemesis.adversary.baselines import BoxProgram, random_program, random_thetas
+    from nemesis.adversary.modes import OP_FAMILY, allowed_slots
+    fams = ["friction", "push", "load"]
+    keep = allowed_slots(fams)
+    th = random_thetas(32, np.random.default_rng(0), families=fams)
+    for s in C.SLOTS:
+        if s.name not in keep:
+            assert np.allclose(th[:, C.INDEX[s.name]], C.NEUTRAL[C.INDEX[s.name]][None])
+    box = BoxProgram(fams)
+    assert box.k < BoxProgram().k
+    for seed in range(10):
+        p = random_program(3, seed, families=fams)
+        assert all(OP_FAMILY[o.op] is None or OP_FAMILY[o.op] in fams for o in p.ops)

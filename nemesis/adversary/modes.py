@@ -20,6 +20,22 @@ FAMILIES = {
     "sensing": ("obs_noise", "joint_offset", "imu_bias", "linvel_bias"),
 }
 DIRECTIONS = ("forward", "backward", "left", "right")
+OP_FAMILY = {"friction": "friction", "ice_patch": "friction", "payload": "load", "slope": "slope",
+             "motor": "actuation", "joint_friction": "actuation", "push": "push", "latency": "timing",
+             "sensor_noise": "sensing", "encoder_offset": "sensing", "imu_bias": "sensing",
+             "velocity_bias": "sensing", "command": None}
+
+
+def allowed_slots(families) -> set[str]:
+    """θ slot names an adversary restricted to `families` may perturb (the command profile, i.e.
+    the task, is always allowed). families=None means everything."""
+    from nemesis.perturb import canonical as C
+    if families is None:
+        return {s.name for s in C.SLOTS}
+    keep = {"command_mode", "command_a", "command_b", "command_switch"}
+    for f in families:
+        keep |= set(FAMILIES[f])
+    return keep
 
 
 def cause_family(theta: np.ndarray) -> str:
