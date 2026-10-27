@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>You vs Muse · Nemesis</title>
+<meta name="description" content="Out-think Meta's Muse at breaking a robot. You each describe an attack; the subtlest one that knocks it over wins. Then the robot learns from both of you.">
+<meta property="og:title" content="You vs Muse: who can break the robot?">
+<meta property="og:description" content="Describe an attack in plain English. Muse writes its own. Same robot, same seeds. Subtle wins.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/duel.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<header class="top">
+  <a class="logo" href="/"><span class="mark"><i></i><i></i><i></i></span>nemesis</a>
+  <nav class="nav mono"><a href="/">Lab</a><a href="/duel.html" class="on">Arena</a><a href="/report.html">Report</a></nav>
+  <span class="tally mono" id="tally">HUMANS <b class="you-c" id="t-you">0</b> · <b class="muse-c" id="t-muse">0</b> MUSE</span>
+</header>
+
+<main>
+<!-- ======================= LOBBY ======================= -->
+<section id="lobby">
+  <div class="hero">
+    <div class="hero-copy">
+      <h1>Break the robot<br><span class="dim">better than<br>the AI</span><span class="muse-c">.</span></h1>
+      <p class="lede">You and <b>Muse</b>, Meta's frontier model, take turns attacking the same walking robot.
+        Same robot, same 8 random seeds, one attack each per round, written at the same time.
+        <b>The subtlest attack that still knocks it over wins.</b></p>
+      <p class="lede">Then the robot trains on everything that broke it, from both of you.</p>
+      <div class="notice">Muse commits to a hash of its attack <b>before</b> you type yours. Your browser verifies it at the reveal.</div>
+      <div class="setup">
+        <div class="seg mono" data-key="rounds"><button class="on" data-v="3">Best of 3</button><button data-v="5">Best of 5</button></div>
+        <div class="seg mono" data-key="hard"><button class="on" data-v="0">Normal</button><button data-v="1" title="Muse may leave up to 3 numbers for an optimizer to tune">Hard</button></div>
+      </div>
+      <div class="ctas">
+        <button class="btn primary mono" id="start">Start the duel <span class="ar">→</span></button>
+        <a class="btn mono" href="#how">How scoring works <span class="ar">›</span></a>
+      </div>
+      <p class="err mono" id="lobby-err"></p>
+    </div>
+
+    <aside class="panel live">
+      <div class="panel-head mono"><span>arena.live</span><span class="pulse"></span></div>
+      <div class="kv mono">
+        <span>robot</span><b id="l-robot">v1</b>
+        <span>seeds / attack</span><b>8</b>
+        <span>score</span><b>falls × subtlety</b>
+        <span>brute force</span><b class="muse-c">scores 0</b>
+      </div>
+      <div class="grid-head mono"><span>all-time record</span><span id="l-rec">0 duels</span></div>
+      <div class="matrix" id="matrix" aria-label="All-time record, one square per finished duel"></div>
+      <div class="legend mono"><span><i class="sq you-bg"></i>human won</span><span><i class="sq muse-bg"></i>muse won</span><span><i class="sq"></i>draw</span></div>
+    </aside>
+  </div>
+
+  <div class="stats">
+    <div><span class="mono lbl">Live robot</span><b id="s-robot">v1</b></div>
+    <div><span class="mono lbl">Humans have won</span><b id="s-human">0</b></div>
+    <div><span class="mono lbl">Muse has won</span><b id="s-muse-wins">0</b></div>
+    <div><span class="mono lbl">Seeds per attack</span><b>8</b></div>
+  </div>
+
+  <div class="how" id="how">
+    <div class="how-head"><span class="mono lbl">How it works</span>
+      <h2>Subtle beats <span class="muse-c">brutal</span>.</h2></div>
+    <div class="cards">
+      <article><span class="mono lbl">01 / Describe</span><div class="viz"><code class="mono">"a light shove from the<br>right as it turns, on<br>slightly wet floor"</code></div>
+        <h3>Say it in words</h3><p>Type or speak. Muse Wonder turns your sentence into physics: friction, pushes, payloads, slopes, weak motors, sensor lag.</p></article>
+      <article><span class="mono lbl">02 / Same seeds</span><div class="viz seeds-demo"><i class="f"></i><i class="f"></i><i></i><i class="f"></i><i class="f"></i><i></i><i class="f"></i><i class="f"></i></div>
+        <h3>8 tries each</h3><p>Both attacks run on the same live robot with the same 8 random starts. Each orange square is a fall.</p></article>
+      <article><span class="mono lbl">03 / Subtlety</span><div class="viz meter"><span class="mono">ice + 150 N</span><b style="--w:12%"></b><span class="mono">wet floor + nudge</span><b style="--w:78%" class="you"></b></div>
+        <h3>Smallest change wins</h3><p>Score = falls × subtlety. If even our toughest robot can't survive it, it's brute force and scores 0.</p></article>
+      <article><span class="mono lbl">04 / Learn</span><div class="viz lineage mono"><span>v3</span><em>→</em><span class="acid-bg">v4</span></div>
+        <h3>The robot learns</h3><p>After the duel, retrain the live robot on every fair attack that broke it. A regression gate keeps it honest.</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= MATCH ======================= -->
+<section id="match" hidden>
+  <div class="board">
+    <div class="side you"><span class="mono lbl">You</span><b class="mono" id="sc-you">0</b></div>
+    <div class="center mono"><div class="pips" id="pips"></div><span id="round-lbl">Round 1 of 3</span><span class="dimtxt" id="robot-lbl">robot v1</span></div>
+    <div class="side muse"><span class="mono lbl">Muse</span><b class="mono" id="sc-muse">0</b></div>
+  </div>
+
+  <div class="turn" id="turn">
+    <div class="panel input-panel">
+      <div class="panel-head mono"><span>you.attack()</span><span class="dimtxt" id="you-hint">round 1</span></div>
+      <label class="prompt"><span class="mono caret you-c">&gt;</span>
+        <textarea id="attack" rows="3" maxlength="500" placeholder="a light shove from the right as it turns, on slightly wet floor"></textarea></label>
+      <div class="chips mono" id="chips"></div>
+      <div class="row-end">
+        <button class="btn mono" id="mic">● Speak</button>
+        <button class="btn primary you-btn mono" id="lock">Lock in <span class="ar">→</span></button>
+      </div>
+    </div>
+    <div class="panel muse-panel">
+      <div class="panel-head mono"><span>muse.attack()</span><span class="dimtxt">sealed</span></div>
+      <pre class="mono term" id="muse-term"></pre>
+      <div class="commit mono"><span class="lbl">sha256</span><code id="commit">pending…</code></div>
+    </div>
+  </div>
+
+  <div class="running mono" id="running" hidden>
+    <div class="scan"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <span id="run-txt">simulating both attacks · same robot · same seeds</span>
+  </div>
+
+  <div class="reveal" id="reveal" hidden>
+    <div class="duo">
+      <div class="col you">
+        <div class="panel stage-panel"><div class="panel-head mono"><span>you</span><span id="you-verdict"></span></div><div class="stage" id="stage-you"></div></div>
+        <div class="result" id="res-you"></div>
+      </div>
+      <div class="col muse">
+        <div class="panel stage-panel"><div class="panel-head mono"><span>muse</span><span id="muse-verdict"></span></div><div class="stage" id="stage-muse"></div></div>
+        <div class="result" id="res-muse"></div>
+      </div>
+    </div>
+    <div class="notice commentary"><span class="mono lbl">muse, commentating</span><p id="comment"></p></div>
+    <div class="row-end"><span class="mono dimtxt" id="verify"></span><button class="btn primary mono" id="next">Next round <span class="ar">→</span></button></div>
+  </div>
+</section>
+
+<!-- ======================= FINAL ======================= -->
+<section id="final" hidden>
+  <span class="mono lbl" id="final-lbl">Final</span>
+  <h1 class="verdict" id="verdict"></h1>
+  <div class="final-board mono" id="final-board"></div>
+  <table class="spec mono" id="recap"></table>
+  <div class="ctas">
+    <button class="btn primary mono" id="train">Train the robot on this duel <span class="ar">↻</span></button>
+    <button class="btn mono" id="share">Share on X <span class="ar">↗</span></button>
+    <button class="btn mono" id="rematch">Rematch <span class="ar">→</span></button>
+  </div>
+  <div class="panel train" id="train-panel" hidden>
+    <div class="panel-head mono"><span>robot.train()</span><span class="dimtxt" id="train-ver"></span></div>
+    <div class="steps mono" id="train-steps"></div>
+    <div class="bar"><i id="train-bar"></i></div>
+    <div class="gate mono" id="train-gate"></div>
+  </div>
+</section>
+</main>
+
+<footer class="foot mono">
+  <span>Muse Wonder writes Muse's attacks and translates yours · Muse Voice Transcribe hears you · MuJoCo MJX simulates · PPO retrains</span>
+  <span><a href="/">lab</a> · <a href="/report.html">red-team report</a> · <a href="https://github.com/divagr18/nemesis">source</a></span>
+</footer>
+
+<script type="module" src="js/duel.js"></script>
+</body>
+</html>

@@ -451,6 +451,149 @@ async def agent(body: AgentIn, request: Request):
     return {"job": job.id, "joined": False}
 
 
+# ---- You vs Muse ---------------------------------------------------------------------------------
+
+DUELS: dict = {}
+_tally = None
+
+
+def tally():
+    global _tally
+    if _tally is None:
+        from server.duel import Tally
+        _tally = Tally(ROOT / "duel_tally.json")
+    return _tally
+
+
+class DuelIn(BaseModel):
+    rounds: int = Field(default=3, ge=1, le=5)
+    hard: bool = False
+
+
+class RoundIn(BaseModel):
+    text: str = Field(min_length=3, max_length=500)
+
+
+def _muse_next(duel):
+    """Muse locks in its attack for the next round before the human submits theirs."""
+    from server import duel as D
+    duel.pending = asyncio.create_task(asyncio.to_thread(D.muse_attack, duel))
+
+
+@app.post("/api/duel")
+async def new_duel(body: DuelIn, request: Request):
+    from server.duel import Duel
+
+    _rate_limit(request.client.host, per_min=4, bucket="duel")
+    duel = Duel(body.rounds, body.hard, versions.live()["name"])
+    DUELS[duel.id] = duel
+    if len(DUELS) > 300:
+        for k in sorted(DUELS, key=lambda k: DUELS[k].created)[:50]:
+            DUELS.pop(k)
+    _muse_next(duel)
+    return duel.public()
+
+
+async def _round(duel, text: str, transcript: str | None = None) -> dict:
+    from server import duel as D
+
+    if duel.over:
+        raise HTTPException(400, "This duel is over. Start a new one!")
+    try:
+        program = await asyncio.to_thread(translate, text)
+        compile_program(program)
+    except (ValidationError, ValueError, json.JSONDecodeError) as e:
+        raise HTTPException(400, f"Could not turn that into a physical attack: {str(e)[:200]}")
+    say, muse_prog = await duel.pending  # locked in before the human's attack existed
+    sealed, commit = duel.sealed, duel.commit
+    async with _gpu:
+        s = sim()
+        th_you = np.asarray(compile_program(program).base, np.float32)
+        th_muse = await asyncio.to_thread(D.tune, s["ev"], s["live"], muse_prog) if duel.hard             else np.asarray(compile_program(muse_prog).base, np.float32)
+        res = await asyncio.to_thread(D.play, s, th_you, th_muse, int(time.time()) % 10_000)
+    res["you"]["text"], res["muse"]["text"] = text, say or muse_prog.hypothesis
+    n = len(duel.history) + 1
+    res["comment"] = await asyncio.to_thread(D.commentary, n, res["you"], res["muse"])
+    res["round"], res["transcript"] = n, transcript
+    res["sealed"], res["commit"] = sealed, commit  # the browser re-hashes sealed and checks it
+    for side in ("you", "muse"):
+        res[side]["id"] = f"{duel.id}-{n}-{side}"
+    duel.history.append(res)
+    if duel.over:
+        tally().add(duel.winner())
+    else:
+        _muse_next(duel)
+    out = duel.public()
+    out["last"] = out["history"][-1]
+    out["tally"] = tally().get()
+    return out
+
+
+@app.post("/api/duel/{duel_id}/round")
+async def duel_round(duel_id: str, body: RoundIn, request: Request):
+    if duel_id not in DUELS:
+        raise HTTPException(404, "Duel not found (the server may have restarted). Start a new one!")
+    _rate_limit(request.client.host, per_min=6, bucket="duel-round")
+    return await _round(DUELS[duel_id], body.text)
+
+
+@app.post("/api/duel/{duel_id}/round_voice")
+async def duel_round_voice(duel_id: str, request: Request, audio: UploadFile = File(...)):
+    if duel_id not in DUELS:
+        raise HTTPException(404, "Duel not found (the server may have restarted). Start a new one!")
+    _rate_limit(request.client.host, per_min=6, bucket="duel-round")
+    path = ROOT / "voice" / f"{uuid.uuid4().hex}.wav"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(await audio.read())
+    text = await asyncio.to_thread(client.transcribe, path, "duel/voice")
+    if len(text.strip()) < 3:
+        raise HTTPException(400, "Didn't catch that. Try again?")
+    return await _round(DUELS[duel_id], text, transcript=text)
+
+
+@app.get("/api/duel/{duel_id}")
+def get_duel(duel_id: str):
+    if duel_id not in DUELS:
+        raise HTTPException(404, "Duel not found (the server may have restarted).")
+    out = DUELS[duel_id].public()
+    out["last"] = out["history"][-1] if out["history"] else None
+    return out
+
+
+@app.get("/api/duel/{duel_id}/muse")
+def duel_muse(duel_id: str):
+    """Whether Muse has locked in this round's attack, and its commitment hash (not the attack)."""
+    if duel_id not in DUELS:
+        raise HTTPException(404)
+    d = DUELS[duel_id]
+    ready = d.pending is not None and d.pending.done()
+    if ready and d.pending.exception():
+        return {"locked": False, "error": str(d.pending.exception())[:200]}
+    return {"locked": ready, "commit": d.commit if ready else None, "round": len(d.history) + 1}
+
+
+@app.get("/api/duel_tally")
+def duel_tally():
+    return tally().get()
+
+
+@app.post("/api/duel/{duel_id}/patch")
+async def duel_patch(duel_id: str, request: Request):
+    """Train the live robot on every attack in the duel that broke it (brute force excluded)."""
+    if duel_id not in DUELS:
+        raise HTTPException(404)
+    _rate_limit(request.client.host, per_min=1, bucket="patch")
+    duel = DUELS[duel_id]
+    attacks = [{"id": r[side]["id"], "text": r[side]["text"], "theta": r[side]["theta"]}
+               for r in duel.history for side in ("you", "muse")
+               if r[side]["fall_rate"] >= 0.5 and not r[side]["cheap"]]
+    if not attacks:
+        raise HTTPException(400, "Nothing in this duel broke the robot fairly, so there is nothing to learn.")
+    job = jobs.new("patch")
+    jobs.spawn(job, _patch(job, attacks[:5]))
+    return {"job": job.id, "attacks": len(attacks[:5])}
+
+
 # ---- Red-team report ---------------------------------------------------------------------------
 
 REPORTS = ROOT / "reports"
