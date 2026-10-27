@@ -55,8 +55,13 @@ PATCH_MEM = os.environ.get("NEMESIS_PATCH_MEM_FRACTION", "0.6")
 COMMUNITY_BATCH = int(os.environ.get("NEMESIS_COMMUNITY_BATCH", "5"))  # auto-retrain after this many new breaks
 SEEDS = 4
 RETEST_SEEDS = 8
+G1_POLICY = os.environ.get("NEMESIS_G1_POLICY", "runs/g1_baseline")
+ROBOT_TEXT = {
+    "go1": "a Unitree Go1 quadruped (12 kg, four legs FR/FL/RR/RL, walking forward at 1 m/s for 5 s)",
+    "g1": "a Unitree G1 humanoid (about 33 kg, 1.3 m tall, two legs L/R, walking forward at 0.8 m/s for 5 s)",
+}
 
-TRANSLATE = """Turn the user's attack on a Unitree Go1 quadruped (walking forward at 1 m/s for 5 s)
+TRANSLATE = """Turn the user's attack on {robot}
 into ONE attack program as JSON. Use FIXED numbers only (no [lo, hi] ranges), stay inside the
 physical envelope below, and keep the user's intent: if they say "ice" use friction ~0.08,
 "wet floor" ~0.3, "shove"/"kick" a push of 60-150 N for 0.1-0.2 s, "backpack" a payload of
@@ -74,10 +79,12 @@ User attack: {text}"""
 app = FastAPI(title="Nemesis")
 app.add_middleware(GZipMiddleware, minimum_size=2048)
 versions = Versions(ROOT, POLICY)
+versions_g1 = Versions(ROOT / "g1", G1_POLICY)  # the humanoid's own lineage
 _gpu = asyncio.Lock()  # one simulation at a time; everyone else queues
 _train = asyncio.Lock()  # one patch at a time
 _hits: dict[str, list[float]] = defaultdict(list)
 _sim = {}
+_sim_g1 = {}
 
 
 def reporter(job):
@@ -114,6 +121,22 @@ def sim():
     return _sim
 
 
+def sim_for(robot: str = "go1") -> dict:
+    """Simulation state per robot (the Go1 path is `sim()`)."""
+    if robot == "go1":
+        return sim()
+    if not _sim_g1:
+        from nemesis.envs.base import load_env
+        from nemesis.perturb.wrapper import NemesisWrapper
+        from nemesis.sim.evaluate import Evaluator
+        from nemesis.train.ppo import load_params
+        v1, live = versions_g1.all()[0], versions_g1.live()
+        _sim_g1.update(ev=Evaluator(NemesisWrapper(load_env(robot="g1")[0], base_dr=False), v1["dir"], horizon=250),
+                       load=load_params, original=load_params(v1["dir"]), live=load_params(live["dir"]),
+                       live_name=live["name"], reference=None)
+    return _sim_g1
+
+
 def reload_live():
     s = sim()
     live = versions.live()
@@ -129,9 +152,13 @@ def _rate_limit(ip: str, per_min: int = RATE_PER_MIN, bucket: str = "attack"):
     _hits[key].append(now)
 
 
-def translate(text: str, limit: int = 500) -> Program:
-    slots = "\n".join(f"- {s.name} [{s.unit}] {s.lo}..{s.hi}: {s.doc}" for s in C.SLOTS)
-    raw = client.respond(TRANSLATE.format(slots=slots, schema=json.dumps(json_schema()), text=text[:limit]),
+def translate(text: str, limit: int = 500, robot: str = "go1"):
+    from nemesis.perturb import dsl
+
+    lay = C.layout(robot)
+    slots = "\n".join(f"- {s.name} [{s.unit}] {s.lo}..{s.hi}: {s.doc}" for s in lay.SLOTS)
+    raw = client.respond(TRANSLATE.format(robot=ROBOT_TEXT[robot], slots=slots, schema=json.dumps(json_schema(robot)),
+                                          text=text[:limit]),
                          model=config.text_model(), reasoning="low", tag="serve/translate",
                          json_only=True)
     raw = raw.strip().strip("`")
@@ -141,17 +168,17 @@ def translate(text: str, limit: int = 500) -> Program:
         raise HTTPException(400, f"Nemesis declined: {data['error']}")
     data.setdefault("name", text[:60])
     data.setdefault("hypothesis", text[:200])
-    return Program.model_validate(data)
+    return dsl.language(robot).Program.model_validate(data)
 
 
 def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, object], contrast: bool = False,
-             report=lambda *a, **k: None) -> dict:
+             report=lambda *a, **k: None, robot: str = "go1") -> dict:
     """Runs one θ against two policies and renders them side by side on a shared seed (the first
     seed where the right-hand policy falls, so a break is shown when there is one)."""
     from nemesis.sim.overlays import overlays
     from nemesis.sim.render import render_qpos, save_video, tile
 
-    s = sim()
+    s = sim_for(robot)
     ev = s["ev"]
     key = int(time.time()) % 10_000
     res = {}
@@ -177,12 +204,13 @@ def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, obje
     report("Rendering the clip and the 3D replay")
     for (name, _), r in zip((left, right), recs):
         q = r["qpos"][0, 0][:t_end]
-        model, scene_fn = overlays(ev.env.mj_model, theta, q, ev.env.dt)  # make the attack visible
+        model, scene_fn = overlays(ev.env.mj_model, theta, q, ev.env.dt, robot=robot)  # make the attack visible
         clips.append(render_qpos(model, q, width=480, height=360, scene_fn=scene_fn))
         # Poses for the 3D replay; the evaluator's fall time (it also counts body contact).
         fell = bool(r["fell"][0, 0])
+        kw = {"robot": robot} if robot != "go1" else {}
         tr = export.trajectory(ev.env.mj_model, q, theta, ev.env.dt, label=name,
-                               fall_time=float(r["time_to_fall"][0, 0]) if fell else None)
+                               fall_time=float(r["time_to_fall"][0, 0]) if fell else None, **kw)
         path = CLIPS / f"{clip_id}_{len(trajs)}.json"
         path.write_text(json.dumps(tr))
         trajs.append({"label": name, "url": f"/traj/{path.name}"})
@@ -193,24 +221,24 @@ def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, obje
             "contrast": bool(recs[0]["fell"][0, 0]) and not bool(recs[1]["fell"][0, 0])}
 
 
-def run_attack(program: Program, theta: np.ndarray | None = None, report=lambda *a, **k: None) -> dict:
-    s = sim()
-    theta = np.asarray(compile_program(program).base) if theta is None else np.asarray(theta, np.float32)
+def run_attack(program, theta: np.ndarray | None = None, report=lambda *a, **k: None, robot: str = "go1") -> dict:
+    s = sim_for(robot)
+    theta = np.asarray(compile_program(program, robot).base) if theta is None else np.asarray(theta, np.float32)
     live = s["live_name"]
-    out = simulate(theta, ("v1", s["original"]), (live, s["live"]), report=report)
+    out = simulate(theta, ("v1", s["original"]), (live, s["live"]), report=report, robot=robot)
     fr = out["fall_rates"]
     ref = None
     if s["reference"] is not None and fr[live] > 0:
         report("Checking whether even our toughest robot falls")
         ref = float(s["ev"](s["reference"], theta[None], seeds=8, key=4)["fell"].mean())
     from nemesis.adversary.cmaes import plausibility_cost
-    implaus = float(plausibility_cost(theta[None])[0])
+    implaus = float(plausibility_cost(theta[None])[0]) if robot == "go1" else 0.0
     return {
         "implausibility": round(implaus, 3),
         # Subtle attacks score higher: breaking the robot with a nudge beats breaking it with a sledgehammer.
         "score": int(round(100 * fr[live] * max(0.0, 1.0 - implaus))) if fr[live] >= 0.5 else 0,
         "id": out["clip_id"], "clip": out["clip"], "trajs": out["trajs"], "program": program.model_dump(),
-        "conditions": C.describe(theta), "version": live,
+        "conditions": C.layout(robot).describe(theta), "version": live, "robot": robot,
         "reference_fall_rate": ref, "survivable": ref is None or ref < UNSURVIVABLE,
         "broke_trained": fr[live] >= 0.5, "fall_rate_trained": fr[live],
         "broke_baseline": fr["v1"] >= 0.5, "fall_rate_baseline": fr["v1"],
@@ -218,12 +246,14 @@ def run_attack(program: Program, theta: np.ndarray | None = None, report=lambda 
     }
 
 
-def _attacks() -> list[dict]:
-    return [json.loads(l) for l in LOG.read_text().splitlines()] if LOG.exists() else []
+def _attacks(robot: str | None = "go1") -> list[dict]:
+    """The attack log; by default only the Go1's (Patch, showcase, community loop and reports are Go1)."""
+    rows = [json.loads(l) for l in LOG.read_text().splitlines()] if LOG.exists() else []
+    return rows if robot is None else [r for r in rows if r.get("robot", "go1") == robot]
 
 
 def _find(attack_id: str) -> dict:
-    for r in _attacks():
+    for r in _attacks(None):
         if r["id"] == attack_id:
             return r
     raise HTTPException(404, "unknown attack")
@@ -232,36 +262,41 @@ def _find(attack_id: str) -> dict:
 class AttackIn(BaseModel):
     text: str = Field(min_length=3, max_length=500)
     handle: str = Field(default="", max_length=24)
+    robot: str = Field(default="go1", pattern="^(go1|g1)$")
 
 
 def _clean_handle(h: str) -> str:
     return "".join(c for c in h if c.isalnum() or c in "_-.").strip()[:24]
 
 
-async def _handle(text: str, ip: str, handle: str = "", report=lambda *a, **k: None, limited: bool = False) -> dict:
+async def _handle(text: str, ip: str, handle: str = "", report=lambda *a, **k: None, limited: bool = False,
+                  robot: str = "go1") -> dict:
     if not limited:
         _rate_limit(ip)
     report("Muse Wonder is turning your words into physics")
     try:
-        program = await asyncio.to_thread(translate, text)
-        compile_program(program)
+        program = await asyncio.to_thread(translate, text, 500, robot)
+        compile_program(program, robot)
     except (ValidationError, ValueError, json.JSONDecodeError) as e:
         raise HTTPException(400, f"Could not turn that into a physical attack: {str(e)[:200]}")
-    result = await log_attack(program, text=text, handle=_clean_handle(handle), report=report)
+    result = await log_attack(program, text=text, handle=_clean_handle(handle), report=report, robot=robot)
     return {k: v for k, v in result.items() if k != "theta"}
 
 
 async def log_attack(program: Program, theta: np.ndarray | None = None, text: str = "", source: str = "human",
-                     handle: str = "", report=lambda *a, **k: None) -> dict:
+                     handle: str = "", report=lambda *a, **k: None, robot: str = "go1") -> dict:
     """Simulates an attack (v1 vs live), renders it, and appends it to the attack log."""
     if _gpu.locked():
         report("Waiting for the GPU (another simulation is running)")
     async with _gpu:
-        result = await asyncio.to_thread(run_attack, program, theta, report)
+        result = await asyncio.to_thread(run_attack, program, theta, report, robot)
     result.update(text=text, ts=time.time(), source=source, handle=handle)
     ROOT.mkdir(parents=True, exist_ok=True)
     with open(LOG, "a") as f:
         f.write(json.dumps(result) + "\n")
+    if robot != "go1":  # the humanoid has its own lineage; Patch and the community loop are Go1-only for now
+        versions_g1.record({result["id"]: result["fall_rate_trained"]}, result["version"])
+        return result
     versions.record({result["id"]: result["fall_rate_trained"]}, result["version"])
     if source != "agent":
         _maybe_community_patch()
@@ -287,12 +322,14 @@ def _maybe_community_patch():
 async def attack(body: AttackIn, request: Request, live: bool = Query(False, alias="stream")):
     if live:
         _rate_limit(request.client.host)
-        return stream("attack", lambda report: _handle(body.text, request.client.host, body.handle, report, True))
-    return await _handle(body.text, request.client.host, body.handle)
+        return stream("attack", lambda report: _handle(body.text, request.client.host, body.handle, report, True,
+                                                       body.robot))
+    return await _handle(body.text, request.client.host, body.handle, robot=body.robot)
 
 
 @app.post("/api/attack_voice")
-async def attack_voice(request: Request, audio: UploadFile = File(...), live: bool = Query(False, alias="stream")):
+async def attack_voice(request: Request, audio: UploadFile = File(...), live: bool = Query(False, alias="stream"),
+                       robot: str = Query("go1", pattern="^(go1|g1)$")):
     path = ROOT / "voice" / f"{uuid.uuid4().hex}.wav"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(await audio.read())
@@ -302,7 +339,7 @@ async def attack_voice(request: Request, audio: UploadFile = File(...), live: bo
         report("Muse Voice Transcribe is listening")
         text = await asyncio.to_thread(client.transcribe, path, "serve/voice")
         report(f"Heard “{text}”")
-        return {"transcript": text, **(await _handle(text, ip, report=report, limited=live))}
+        return {"transcript": text, **(await _handle(text, ip, report=report, limited=live, robot=robot))}
     if live:
         _rate_limit(ip)
         return stream("attack", run)
@@ -316,7 +353,8 @@ WORLD_TYPES = {".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".webm", ".m4v"
 
 
 @app.post("/api/world")
-async def world(request: Request, media: UploadFile = File(...), live: bool = Query(False, alias="stream")):
+async def world(request: Request, media: UploadFile = File(...), live: bool = Query(False, alias="stream"),
+                robot: str = Query("go1", pattern="^(go1|g1)$")):
     from server import world as W
 
     _rate_limit(request.client.host)
@@ -337,11 +375,12 @@ async def world(request: Request, media: UploadFile = File(...), live: bool = Qu
         text = W.as_attack_text(reading)
         report("Muse Wonder is turning it into physics")
         try:
-            program = await asyncio.to_thread(translate, text, 1200)
-            compile_program(program)
+            program = await asyncio.to_thread(translate, text, 1200, robot)
+            compile_program(program, robot)
         except (ValidationError, ValueError, json.JSONDecodeError) as e:
             raise HTTPException(400, f"Could not turn that place into physics: {str(e)[:200]}")
-        result = await log_attack(program, text=f"Your world: {reading['place']}", source="world", report=report)
+        result = await log_attack(program, text=f"Your world: {reading['place']}", source="world", report=report,
+                                  robot=robot)
         result.update(reading=reading, media=f"/media/{path.name}")
         return {k: v for k, v in result.items() if k != "theta"}
     if live:
@@ -533,6 +572,8 @@ def explain_learning(clip_url: str, trajs: list[dict], attack_text: str) -> str:
 async def patch(body: PatchIn, request: Request):
     _rate_limit(request.client.host, per_min=1, bucket="patch")
     attack = _find(body.attack_id)
+    if attack.get("robot", "go1") != "go1":
+        raise HTTPException(400, "Training the humanoid from the page is coming soon; for now it's attack-only.")
     if not attack["broke_trained"]:
         # Patch is gated on fixed seeds; an attack that only fells it occasionally can't show a fix.
         raise HTTPException(400, "This only knocks the robot over occasionally, so there's nothing reliable to train away.")

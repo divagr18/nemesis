@@ -37,6 +37,8 @@ export default function Lab() {
   const [board, setBoard] = useState<any[]>([]);
   const [prefill, setPrefill] = useState({ text: "", n: 0 });
   const [showcase, setShowcase] = useState<any>(null);
+  const [robot, setRobot] = useState<"go1" | "g1" | "both">("go1");
+  const [pair, setPair] = useState<any[] | null>(null);
   const [attempts, setAttempts] = useState<any[]>([]);
   const [attempt, setAttempt] = useState(0);
   const [cycling, setCycling] = useState(false);
@@ -55,10 +57,17 @@ export default function Lab() {
   }, [tick]);
 
   const [steps, setSteps] = useState<string[]>([]);
-  const run = async (first: string, start: () => Promise<{ job: string }>) => {
-    setBusy(first); setSteps([first]); setError(""); setPatchJob(null); setAfter(null); setAttempts([]);
+  const run = async (first: string, start: (r: "go1" | "g1") => Promise<{ job: string }>) => {
+    setBusy(first); setSteps([first]); setError(""); setPatchJob(null); setAfter(null); setAttempts([]); setPair(null);
+    const step = (prefix: string) => (st: string) => setSteps((xs) => (xs.at(-1) === prefix + st ? xs : [...xs, prefix + st]));
     try {
-      setResult(await runJob(start(), (st) => setSteps((xs) => (xs.at(-1) === st ? xs : [...xs, st]))));
+      if (robot === "both") {  // the same situation for each robot, one after the other (the GPU queues them anyway)
+        const a = await runJob(start("go1"), step("Quadruped · "));
+        const b = await runJob(start("g1"), step("Humanoid · "));
+        setResult(null); setPair([a, b]);
+      } else {
+        setResult(await runJob(start(robot), step("")));
+      }
       setTick((t) => t + 1);
     } catch (e: any) { setError(e.message); }
     setBusy(""); setSteps([]);
@@ -90,13 +99,28 @@ export default function Lab() {
               </button>
             ))}
           </div>
-          <div className="mt-8">
+          <div className="mt-8 flex items-center gap-1 text-[13px]">
+            {([["go1", "Quadruped"], ["g1", "Humanoid"], ["both", "Both"]] as const).map(([k, label]) => (
+              <button key={k} onClick={() => setRobot(k)} disabled={!!busy}
+                className={`rounded-full px-3 py-1 transition-colors ${robot === k ? "bg-white/10 text-ink" : "text-mute hover:text-ink"}`}>{label}</button>
+            ))}
+          </div>
+          <div className="mt-2.5">
             <Composer busy={!!busy} examples={["Describe an attack…"]} prefill={prefill}
-              onText={(text) => run("Sending your attack", () => post("/api/attack?stream=1", { text }))}
-              onVoice={(wav) => run("Uploading your voice", () => upload("/api/attack_voice?stream=1", "audio", wav, "attack.wav"))}
-              onFile={(f) => run("Uploading your photo", () => upload("/api/world?stream=1", "media", f, f.name))} />
+              onText={(text) => run("Sending your attack", (r) => post("/api/attack?stream=1", { text, robot: r }))}
+              onVoice={(wav) => run("Uploading your voice", (r) => upload(`/api/attack_voice?stream=1&robot=${r}`, "audio", wav, "attack.wav"))}
+              onFile={(f) => run("Uploading your photo", (r) => upload(`/api/world?stream=1&robot=${r}`, "media", f, f.name))} />
           </div>
           {error && <p className="mt-3 text-sm text-ember">{error}</p>}
+          {pair && !busy && (
+            <div className="rise mt-6 space-y-1.5 text-[15px] text-mute">
+              {pair.map((r: any, i: number) => (
+                <p key={i}>{i === 0 ? "Quadruped" : "Humanoid"} {r.version}{" "}
+                  <span className={r.fall_rate_trained >= 0.5 ? "text-ember" : "text-acid"}>{r.fall_rate_trained >= 0.5 ? "fell" : "held"}</span>
+                  <span className="text-faint"> · {pct(r.fall_rate_trained)}</span></p>
+              ))}
+            </div>
+          )}
           {result && !busy && <Verdict r={result} after={after} onPatch={async () => {
             try { setPatchJob((await post("/api/patch", { attack_id: result.id })).job); } catch (e: any) { setError(e.message); }
           }} patching={!!patchJob} />}
@@ -123,8 +147,18 @@ export default function Lab() {
         </section>
 
         <section className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-line bg-[#0b0d12] lg:aspect-[16/11] lg:max-h-[calc(100dvh-11rem)]">
-          {stage ? (
-            <Replay key={JSON.stringify(stage)} trajs={stage.map((t: any, i: number) => ({ url: t.url, label: labels?.[i] || t.label }))} className="absolute inset-0" />
+          {pair && !showing ? (
+            <div className="absolute inset-0 grid grid-cols-2 divide-x divide-line">
+              {pair.map((r: any, i: number) => (
+                <div key={i} className="relative">
+                  <Replay robot={i === 0 ? "go1" : "g1"} trajs={[{ url: r.trajs[1].url, label: `${i === 0 ? "quadruped" : "humanoid"} · ${r.version}` }]}
+                    className="absolute inset-0" />
+                </div>
+              ))}
+            </div>
+          ) : stage ? (
+            <Replay key={JSON.stringify(stage)} robot={result?.robot || "go1"}
+              trajs={stage.map((t: any, i: number) => ({ url: t.url, label: labels?.[i] || t.label }))} className="absolute inset-0" />
           ) : (
             <Replay trajs={[{ url: "/assets/sample_traj_held.json", label: "" }]} hud={false} className="absolute inset-0" />
           )}
@@ -199,7 +233,7 @@ export default function Lab() {
 
 function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPatch: () => void; patching: boolean }) {
   const fell = r.fall_rate_trained >= 0.5;
-  const canPatch = r.fall_rate_trained >= 0.5 && r.survivable !== false && !after;
+  const canPatch = r.fall_rate_trained >= 0.5 && r.survivable !== false && !after && (r.robot || "go1") === "go1";
   return (
     <div className="rise mt-6">
       {r.reading && (
