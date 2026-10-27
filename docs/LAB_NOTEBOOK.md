@@ -362,6 +362,41 @@ Notes:
 4. **Open weights are enough.** The self-hosted Glimmer 30B (Q4, one A10G) proposes programs as productive as Wonder's. The adversary does not need a frontier API.
 5. **Not shown:** that Spark's video feedback or the archive history improves search. Both are within noise or slightly negative. Spark's role is labelling, not steering.
 
+## Oct 27: F7, a second robot (Unitree G1 humanoid)
+
+- **Robot registry** (`nemesis/robots.py`): Playground env, feet, leg joints/actuators, trunk, fall thresholds, obs offsets, contact model, envelope and nominal command per robot. `canonical.layout(robot)` and `dsl.language(robot)` build per-robot θ layouts and attack languages. All robots share D = 80 and the same slot names; G1 uses 61 slots (2 feet instead of 4, the 12 leg joints).
+- **Go1 is unchanged.** The layout hash, slot docs and the DSL JSON schema are identical to before. Adversary controls (random programs, random θ, box CMA, plausibility cost, mode signatures) produce identical outputs. CPU rollouts of `baseline_v2` on 6 gauntlet scenarios × 2 seeds are **bit-identical** to the pre-registry code. On GPU, old-vs-new differs on 4.3% of fall flags, but old-vs-old already differs on 2.7% (GPU nondeterminism). Aggregates match: 27.3% vs 27.0% / 27.3%.
+- **G1 specifics that differ from Go1:**
+  - Foot-floor friction comes from explicit `<pair>`s (0.6), not geom friction, so θ sets `pair_friction`. Neutral foot friction is 0.6.
+  - The stock scene has no pelvis or torso collision primitives (only meshes). Its shin capsules (r = 0.08) reach within ~2 cm of the sole, so they would fire on toe-off. `load_env(robot="g1")` adds massless pelvis/torso boxes, a head sphere and thin shin capsules via MjSpec and enables the thigh and hand capsules. Masses and inertias are unchanged (tested).
+  - G1 actuators are position actuators without force limits. Motor strength scales Kp on the 12 leg actuators; waist and arms keep full strength.
+  - Gravity is read in the pelvis IMU frame. The obs layout differs (command at 9:12, joints 12:41, gait phase at the end).
+- **Bug caught on the first training run:** G1 also has explicit hand-thigh contact pairs, and the fall check counted *any* contact of a body geom. Swinging arms brushing the thighs ended episodes. A diagnostic (64 rollouts) showed these "pair" falls, so the run was stopped at 106M steps. The check now counts only body-floor contacts. For Go1 every body-geom contact is a floor contact, so nothing changes there (re-verified bit-identical on CPU).
+- **Fall definition (G1):** non-foot floor contact, torso tilt > 45°, or pelvis below 0.45 m (0.755 m standing). Fall penalty 1.0 plus the env's termination term (-100 × dt).
+- **Baseline `runs/g1_baseline`:** NemesisWrapper, nominal θ, per-episode Playground-style DR (frictionloss ×U(0.5, 2), armature, masses, torso ±1 kg; no friction DR, θ owns friction). Playground's G1 PPO config, 8192 envs, 202M steps on one L40S (g6e.xlarge, us-east-2): **85 min** (5 min of that compiling), about 5.6× Go1's time.
+  - Eval reward −4.8 → 16.6. Average episode length 29 → 860 of 1000. Falls per 20 s random-command eval episode 99% → 24%.
+  - Learning starts around 30–40M steps, as with Go1 under strict termination.
+- **Verification** (`experiments/humanoid_check.py`, 16 seeds, 5 s, command 0.8 m/s forward):
+
+  | Scenario | Falls | Progress (m) |
+  |---|---|---|
+  | nominal | 0% | 3.02 |
+  | shove 100 N, 0.2 s | 0% | 2.64 |
+  | shove 150 N | 19% | 2.29 |
+  | shove 200 N | 100% | 1.56 |
+  | shove 300 N | 100% | 1.26 |
+  | ice μ 0.1 | 88% | 0.95 |
+  | wet μ 0.3 | 0% | 3.00 |
+  | latency 20 ms | 0% | 2.78 |
+  | latency 40 ms | 56% | 1.71 |
+  | 10 kg high payload | 100% | −0.40 |
+  | weak knees 0.5 | 56% | 0.50 |
+  | uphill 0.2 rad | 6% | −1.68 (it stalls) |
+
+  - Over 10 s with nominal walking, 3 of 64 seeds fell (4.7%).
+  - The profile looks like Go1's: a cliff between 150 and 200 N, and 40 ms latency as a killer. The 100 N side shove does *not* break it, since 100 N for 0.2 s on 33 kg is only 0.6 m/s.
+- Clips: `runs/humanoid_clips/g1_nominal.mp4` and `g1_shove.mp4` (200 N side shove with the overlays). Copied to the main checkout's `runs/humanoid_clips/`.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
@@ -372,4 +407,5 @@ Notes:
 | Oct 26 | Headline: a discovery curve plus CVaR@10% | Isolates the LLM's contribution; the mean vs DR is likely small and noisy |
 | Oct 27 | Command profile searchable by every adversary | Otherwise the comparison favors the LLM |
 | Oct 27 | Fine-tune bank = shrunk failures + history failures; 50/40/10 nominal/bank/uniform | Diversity around each mode; keep nominal performance |
+| Oct 27 | Humanoid = Unitree G1 (`G1JoystickFlatTerrain`), one padded D = 80 vector per robot, Go1 layout frozen | G1 trains in Playground with a tuned config; same vector length keeps every tool shape-compatible |
 | Oct 27 | DR arm and held-out suites use scaled envelopes (w=0.25, 0.5), not the full envelope | The full envelope is ~100% unsurvivable, so it would make a strawman baseline |
