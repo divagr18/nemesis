@@ -249,6 +249,39 @@ Go1 only for now; the G1 gets terrain later via the same registry hook.
 
 Features 1–8 were picked by the user, with 10 as a stretch. Positioning: describe a situation → the robot faces it → it learns. Build until Nov 3, 3 PM IST; video until Nov 5, 3 AM IST; then submit.
 
+### Status (Oct 27, late)
+**Done:**
+- 0.1 terrain
+- 0.2 H-S (NOT SUPPORTED)
+- 0.4 stable server (scheduled task on the PC; the public site moved to its own box)
+- 0.5 tagline ("Every robot needs a nemesis.")
+- #1 Watch it learn: an attempt per 1M steps, streamed; early stop; 8M cap
+- #5 Spark explains
+- #8 changelog
+- #4 safety map in Break it
+- #2 course physics/DSL (b478396)
+
+**Added and done:**
+- the public site at nemesis.divagr.com (g4dn.xlarge T4)
+- attacks in 8–10 s (mp4 off the request path, startup compile)
+- the replay-after-fall fix
+- Spark on the contributor tier
+- VIDEO_PLAN v4
+- README feature coverage
+
+**Left:**
+- #7 humanoid on the page: the server and the G1 asset are done; still needed are deploy, HUMANOID_READY and a test. A G1 patch from the page is not built.
+- #2 course UI: replay.js must draw `ramps` and `ice_patches`, plus a segment legend and a fell-at marker, then a live check.
+- #4 safety map on the Report per finding.
+- #3 deployment brief.
+- #6 share pages and vertical clips.
+- 0.3 the `test_humanoid_wrapper` bound.
+- 0.6 mobile pass, dark Hall of Fame clips, a live Autopilot check.
+- New: SAM 3.1 in the photo flow (the video's real-place beat); Spark judging duel rounds (optional).
+- A stairs scenario that patches within 8M steps (for the cold open).
+- Filming on an L40S for real-time Patch.
+- #10 stretch.
+
 ### Hard constraints
 - θ stays **D = 80**. The critic's input includes θ, so changing D breaks every checkpoint. Go1 uses 63 slots, and terrain adds ~4, leaving ~13 free. New slots are appended in the padding with neutral = 0, then `THETA_LAYOUT_VERSION` is bumped.
 - Normal Go1 rollouts must stay bit-identical after any physics change; the audit's `compare_rollouts.py`/`diff_rollouts.py` probe is the check.

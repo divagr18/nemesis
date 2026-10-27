@@ -2,19 +2,24 @@
 
 **Every robot needs a nemesis.**
 
-Nemesis lets anyone put a walking robot in a situation and watch it learn. Describe the situation in plain English, say it out loud, or photograph a real place. Meta's Muse models turn it into physics, and a Unitree Go1 runs it in MuJoCo. If the robot falls, one click retrains it until it doesn't, and every fix is regression-tested before it goes live. An autonomous agent does the same on its own and writes up what it found.
+Nemesis lets anyone put a walking robot in a situation and watch it learn. Describe the situation in plain English, say it out loud, or photograph a real place. Meta's Muse models turn it into physics, and a Unitree Go1 faces it in MuJoCo. If the robot falls, one click retrains it: you watch every attempt, every fix is regression-tested before it goes live, and Muse Spark explains what changed.
+
+**Try it: [nemesis.divagr.com](https://nemesis.divagr.com)**
 
 | | What you do | What happens |
 |---|---|---|
-| **Attack** | Type or say *"wet tiles and a 3 kg backpack"* | **Muse Voice Transcribe** hears it, **Muse Wonder** compiles it into a physics program (friction, payloads, shoves, slopes, weak motors, sensor lag…), and the robot runs it. You watch the original and the live robot in an interactive **3D replay**. |
-| **Patch it** | Click **Train it to survive this** | Nemesis fine-tunes the live robot (PPO on GPU) on your attack, 48 nearby variants and every earlier lesson. A **regression gate** then checks three things: the attack is fixed, the robot still walks, and nothing on a locked 52-scenario gauntlet got worse. Only then does it become the new live version and replay your attack. |
-| **Your world** | Upload a photo or video of a place | **Muse Spark** reads the surface, slipperiness and slope ("packed ice and slush, μ≈0.2"). The robot is tested in that environment. |
-| **Agent mode** | Click **Start investigation** | Wonder runs a tool-using investigation live. It forms hypotheses, searches each attack program with CMA-ES for the most plausible failure, and drops the ones that don't hold. Spark watches every fall, Nemesis measures the safety margin ("falls begin at 108 N"), and the robot is retrained. |
+| **Break it** | Type or say *"wet tiles and a 3 kg backpack"*, or tap a sample | **Muse Voice Transcribe** hears it and **Muse Wonder** compiles it into a physics program: friction, payloads, shoves, slopes, weak motors, sensor lag, stairs and curbs. The original robot and the live version both run it on the same seeds, and you watch them side by side in an interactive **3D replay** (scrub, slow-mo, the push drawn as an arrow, ice as a glossy patch). The page shows each stage as it happens. A result takes about 10 s. |
+| **Train it** | Click **Train it to survive this** | Nemesis fine-tunes the live robot with PPO on GPU, on your situation, 48 nearby variants and every earlier lesson. **Watch it learn:** after every million simulated steps the robot tries your situation again, and each attempt streams to the page ("1M · 9/16 falls"). Training stops as soon as it holds and still walks normally, capped at 8M steps. A **regression gate** then checks three things: the situation is fixed, the robot still walks, and nothing on a locked 52-scenario gauntlet got worse. Only then does it go live. **Muse Spark** watches the before/after clip with measured gait numbers and says what changed. A **safety map** (an 11 × 11 grid over the two conditions that matter most, 16 seeds per cell) shows how much more the new version can take. |
+| **A real place** | Upload a photo or video of a place | **Muse Spark** reads the surface, slipperiness, slope and hazards ("packed ice and slush, μ≈0.2"). The robot is tested in that environment. |
+| **Stairs and routes** | *"out the door, down three small steps, across an icy driveway, up a ramp"* | Real step and ramp geometry the feet collide with. One sentence becomes an ordered course: steps up and down, curbs, ramps, ice and wet patches. *(The replay draws stairs and curbs today; drawing ramps and a second ice patch is in progress.)* |
+| **You vs Muse** | Start a game | You and Muse each describe a situation per round, without seeing each other's. Both run on the live robot with the same 8 seeds. Score = fall rate × subtlety, so the smallest realistic change that still knocks it over wins, and brute force scores 0. In **Hard** mode Muse writes six candidates and practises them in the simulator before committing to its best. |
+| **Autopilot** | Give it a goal, or just start | Muse Wonder runs a live investigation with native tool calling. It forms hypotheses, searches each one with CMA-ES for the most plausible failure, and drops the ones that don't hold. Spark watches every fall, Nemesis measures the margin ("falls begin at 108 N"), and the robot is retrained. Laid out like a chat, with a replay pane. |
 | **Readiness** | Open the Readiness report | A report for any robot version: failure families, top findings with clips, Spark's diagnoses, safety margins, and deployment recommendations written by Wonder ("do not deploy below μ 0.29 while turning"). |
-| **Community** | Just attack it | The robot learns from everyone. Every few successful attacks trigger a community retrain. A lineage view tracks versions, the Hall of Fame shows which version each attack broke, and the leaderboard rewards the *subtlest* attack. |
+| **Lineage** | Just use it | The robot learns from everyone: every few successful situations trigger a community retrain. Each version gets a two-line changelog written by Wonder (what it learned, what still knocks it over). The Hall of Fame shows which version each situation broke, and the leaderboard rewards the *subtlest* one. |
+| **Two robots** | `robot: "g1"` in the API | The same pipeline on a **Unitree G1 humanoid**: its own physics vocabulary, its own trained policy and lineage. *(The page toggle is coming; training the humanoid from the page is not built yet.)* |
 | **Open weights** | `NEMESIS_OPEN=1` | The whole loop runs offline on **Muse Glimmer** on one 24 GB GPU, no API key needed ([details](#fully-open-weight-mode)). |
 
-Every attack is also run against our toughest policy. If even that one falls almost every time, the page says *"Physics wins"* instead of pretending it can be trained away.
+Every situation is also run against our toughest policy. If even that one falls almost every time, the page says *"Physics wins"* instead of pretending it can be trained away.
 
 > Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), *Push the Frontier* theme. Everything in this repo was written during the event; see [What was built during the hackathon](#what-was-built-during-the-hackathon).
 
@@ -50,7 +55,8 @@ Every attack is also run against our toughest policy. If even that one falls alm
   - control latency and timed pushes
   - sensor noise and biases (encoders, IMU, velocity estimate)
   - command profiles
-- **Attack DSL** ([`nemesis/perturb/dsl.py`](nemesis/perturb/dsl.py)). 13 composable ops. Every number is either fixed or a `[lo, hi]` range for the optimizer. LLM output is validated JSON and is never executed.
+  - terrain: stairs (up, and back down after a landing), curbs, a ramp, a second ice patch. Eight mocap boxes are placed along the start heading each episode; the feet collide with them, and a leg or body hitting a riser counts as a trip
+- **Attack DSL** ([`nemesis/perturb/dsl.py`](nemesis/perturb/dsl.py)). 16 composable ops, including `stairs`, `curb` and `course` (an ordered route of stairs up/down, curbs, ramps, ice and wet patches). Every number is either fixed or a `[lo, hi]` range for the optimizer. LLM output is validated JSON and is never executed.
 - **NemesisWrapper** ([`nemesis/perturb/wrapper.py`](nemesis/perturb/wrapper.py)). Applies θ inside MuJoCo Playground's Brax training stack, per environment and per episode, together with:
   - body–floor collisions and a strict fall check
   - a 3-frame observation history and a θ-aware critic
@@ -65,9 +71,9 @@ Every attack is also run against our toughest policy. If even that one falls alm
 
 | Model | Role |
 |---|---|
-| **Muse Wonder** (`muse-wonder-1.0`) | Turns visitors' plain-English attacks into physics programs. Runs agent mode as a native tool-calling agent (search, margin, watch, patch). Writes the hypotheses of the automated hunt and the Readiness reports. |
-| **Muse Spark 1.3** (image + video input) | Watches failure clips and names the mode ("lateral shove front-leg buckle"). Reads photos of real places into physical parameters (Your world). Its observations steer Wonder. |
-| **Muse Voice Transcribe** | Spoken attacks on the page. |
+| **Muse Wonder** (`muse-wonder-1.0`) | Turns visitors' plain-English situations into physics programs. Plays Muse in You vs Muse. Runs Autopilot as a native tool-calling agent (search, margin, watch, patch). Writes version changelogs, the hypotheses of the automated hunt and the Readiness reports. |
+| **Muse Spark 1.3** (image + video input; the `-contributor` tier for every call) | Watches failure clips and names the mode ("lateral shove front-leg buckle"). Reads photos of real places into physical parameters. Explains what each retrain changed, citing measured gait numbers. Its observations steer Wonder. |
+| **Muse Voice Transcribe** | Spoken situations on the page and in You vs Muse. |
 | **Muse Glimmer** (open weights, self-hosted via llama.cpp) | Drop-in open-weight adversary (`--proposer glimmer`). With `NEMESIS_OPEN=1` it also translates attacks and watches clips (see [Fully open-weight mode](#fully-open-weight-mode)). |
 
 ## Results
@@ -186,14 +192,20 @@ bash scripts/serve.sh 8000                                   # the page: http://
 ```
 
 The service ([`server/`](server)) is a FastAPI app:
-- `app.py`: attacks, versions, Hall of Fame and leaderboard.
-- `patch_worker.py`: Patch training and the regression gate, run in a subprocess with its own GPU memory.
-- `agent.py`: agent mode.
-- `world.py`: Your world.
-- `report.py`: Readiness reports.
+- `app.py`: situations, Patch, the safety map, the hero showcase, versions, Hall of Fame and leaderboard.
+- `patch_worker.py`: Patch training (an attempt per million steps, early stop, 8M cap) and the regression gate, run in a subprocess with its own GPU memory.
+- `duel.py`: You vs Muse.
+- `agent.py`: Autopilot.
+- `world.py`: photos and videos of real places.
+- `report.py`: Readiness reports and the safety map.
+- `versions.py`: the lineage, changelogs and the community lesson bank.
 - `jobs.py`: background jobs, streamed to the page as resumable server-sent events.
 
-The web app ([`web/`](web)) is Vite + React + Tailwind: Break it, You vs Muse, Agent and Report. It builds to `web/dist`, which the server serves (`cd web && npm install && npm run build`). The 3D replay is three.js playing back poses exported from the simulator (`nemesis/sim/export.py`).
+The web app ([`web/`](web)) is Vite + React + Tailwind with four pages: Break it, You vs Muse, Autopilot and Readiness. It builds to `web/dist`, which the server serves (`cd web && npm install && npm run build`). The 3D replay is three.js playing back poses exported from the simulator (`nemesis/sim/export.py`).
+
+**The live site** runs on one always-on AWS g4dn.xlarge (a single T4), deployed with `scripts/deploy.sh up` (Elastic IP, Caddy with Let's Encrypt, systemd). Measured there:
+- A typed situation takes 8–10 s end to end, about 4 s of it Muse Wonder. The mp4 clip that Spark and the cards use renders in the background, and every simulation shape is compiled at startup.
+- Training stops as soon as an attempt holds. One million steps of PPO takes about 40 s on the T4.
 
 ## Fully open-weight mode
 
