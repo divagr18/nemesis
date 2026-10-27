@@ -27,6 +27,10 @@ class Slot:
     hi: float | tuple
     unit: str
     doc: str
+    # The neutral value is an "off" marker outside [lo, hi] (stairs_depth, stairs_start: 0, the
+    # padding value, so θ vectors from before the slot existed stay neutral). The slot only matters
+    # when another slot switches the feature on, so it is never a deviation from nominal.
+    neutral_off: bool = False
 
 
 def _slots(r: robots.Robot) -> tuple:
@@ -68,6 +72,28 @@ def _slots(r: robots.Robot) -> tuple:
         Slot("command_a", 3, 0.0, cmd_lo, cmd_hi, "m/s,m/s,rad/s", "command (vx, vy, yaw rate) before the switch"),
         Slot("command_b", 3, 0.0, cmd_lo, cmd_hi, "m/s,m/s,rad/s", "command after the switch"),
         Slot("command_switch", 1, 20.0, 0.0, 20.0, "s", "time of the switch from command_a to command_b"),
+    ) + (_terrain_slots(r) if r.terrain_boxes else ())
+
+
+def _terrain_slots(r: robots.Robot) -> tuple:
+    """Stairs and curbs, appended after the original slots (whose indices stay put). Neutral is 0
+    everywhere, the padding value, so every older θ means flat ground."""
+    hip = r.hip_height
+    return (
+        Slot("stairs_height", 1, 0.0, 0.0, 0.15, "m",
+             f"height of each step's riser (0 = flat ground, no steps). Door threshold 0.02-0.03, "
+             f"low step or curb 0.10-0.15; household stair risers (0.15-0.18) are beyond this robot, "
+             f"whose hip is ~{hip} m high"),
+        Slot("stairs_depth", 1, 0.0, 0.2, 0.6, "m",
+             "tread depth of each step along the walking direction (household stairs 0.25-0.30)",
+             neutral_off=True),
+        Slot("stairs_count", 1, 0.0, 0.0, 8.0, "steps",
+             "number of steps, rounded to an integer (0 = none, 1 = a curb); the top step is a "
+             "landing 2.4 m deep"),
+        Slot("stairs_start", 1, 0.0, 0.5, 3.0, "m",
+             "distance from the start position, along the initial heading, to the first riser; the "
+             "steps are 3 m wide, centred on the start position, and rise away from the robot",
+             neutral_off=True),
     )
 
 
@@ -91,6 +117,13 @@ class Layout:
         self.LO = self._fill("lo", 0.0)
         self.HI = self._fill("hi", 0.0)
         self.SPAN = np.where(self.HI > self.LO, self.HI - self.LO, 1.0)
+        off = np.zeros(D, bool)
+        for s in self.SLOTS:
+            off[self.INDEX[s.name]] = s.neutral_off
+        self.NEUTRAL_OFF = off
+        # normalized() reads an "off" neutral as the bottom of the range (-1, as the padding read
+        # before the slot existed), so the critic's θ input is unchanged for older θ vectors.
+        self._off_shift = np.where(off, self.LO - self.NEUTRAL, 0.0).astype(np.float32)
 
     def _fill(self, attr: str, pad: float) -> np.ndarray:
         v = np.full(D, pad, dtype=np.float32)
@@ -102,10 +135,13 @@ class Layout:
         return self.NEUTRAL.copy()
 
     def clip(self, theta: np.ndarray) -> np.ndarray:
-        return np.clip(theta, self.LO, self.HI)
+        """θ clipped to the envelope; "off" neutral values (outside it by design) are kept."""
+        theta = np.asarray(theta)
+        return np.where(self.NEUTRAL_OFF & (theta == self.NEUTRAL), theta, np.clip(theta, self.LO, self.HI))
 
     def normalized(self, theta):
-        """θ scaled to [-1, 1] over the envelope (critic input)."""
+        """θ scaled to [-1, 1] over the envelope (critic input; numpy or JAX)."""
+        theta = theta + (theta == self.NEUTRAL) * self._off_shift
         return 2.0 * (theta - self.LO) / self.SPAN - 1.0
 
     def describe(self, theta: np.ndarray, atol: float = 1e-6) -> dict:

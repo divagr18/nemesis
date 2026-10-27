@@ -10,8 +10,8 @@ episode: from a scenario bank (with a nominal fraction), or uniformly from the e
 domain-randomization arm). Set info["nemesis_resample"]=False to pin θ (evaluation).
 
 Beyond the raw env, the wrapper also
-  - ends the episode on a real fall (non-foot ground contact, tilt > 45°, root below the robot's
-    minimum height, e.g. 0.18 m for Go1),
+  - ends the episode on a real fall (non-foot contact with the floor or a step, tilt > 45°, root
+    below the robot's minimum height, e.g. 0.18 m for Go1),
   - computes the reward without Playground's clip at 0, so hard scenarios keep a gradient,
   - stacks the last HISTORY actor observations and appends normalized θ to the critic's input.
 
@@ -29,6 +29,7 @@ from mujoco_playground._src import wrapper as pg_wrapper
 from nemesis import robots
 from nemesis.perturb import apply as A
 from nemesis.perturb import canonical as C
+from nemesis.perturb import terrain
 
 HISTORY = 3
 STATE = robots.GO1.obs_size  # Go1's values; per-robot ones come from the env's robots.Spec
@@ -45,6 +46,35 @@ def spec_of(env) -> robots.Spec:
         robot = next(r for r in robots.ROBOTS.values() if r.name in module)
         spec = robots.resolve(robot, raw._mj_model)
     return spec
+
+
+SAMPLE_SPACING = 0.02  # m between fall-check sample points on the body's collision geoms
+
+
+def body_samples(m, geoms, spacing: float = SAMPLE_SPACING):
+    """Spheres covering the body collision geoms, for the geometric body-step check: points on
+    each box's surface (radius 0) and along each capsule's axis (its radius), at most `spacing`
+    apart. Returns (geom id [P], offset in the geom frame [P, 3], radius [P])."""
+    import mujoco
+    gid, local, rad = [], [], []
+    for g in np.asarray(geoms):
+        size = m.geom_size[g]
+        if m.geom_type[g] == mujoco.mjtGeom.mjGEOM_BOX:
+            axes = [np.linspace(-a, a, int(np.ceil(2 * a / spacing)) + 1) for a in size]
+            grid = np.stack(np.meshgrid(*axes, indexing="ij"), -1).reshape(-1, 3)
+            pts = grid[(np.abs(np.abs(grid) - size) < 1e-9).any(1)]  # surface only
+            r = np.zeros(len(pts))
+        elif m.geom_type[g] == mujoco.mjtGeom.mjGEOM_CAPSULE:
+            z = np.linspace(-size[1], size[1], int(np.ceil(2 * size[1] / spacing)) + 1)
+            pts = np.stack([np.zeros_like(z), np.zeros_like(z), z], -1)
+            r = np.full(len(z), size[0])
+        elif m.geom_type[g] == mujoco.mjtGeom.mjGEOM_SPHERE:
+            pts, r = np.zeros((1, 3)), np.full(1, size[0])
+        else:
+            raise ValueError(f"no fall-check samples for geom type {m.geom_type[g]}")
+        gid.append(np.full(len(pts), g)), local.append(pts), rad.append(r)
+    return (np.concatenate(gid).astype(np.int32), np.concatenate(local).astype(np.float32),
+            np.concatenate(rad).astype(np.float32))
 
 
 class NemesisWrapper(pg_wrapper.Wrapper):
@@ -82,6 +112,9 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         self._env_pushes = base_dr if env_pushes is None else env_pushes
         self._uniform_frac = uniform_frac
         self._body_geoms = jp.asarray(getattr(raw, "_nemesis_body_geoms", []), jp.int32)
+        self._samples = None
+        if self.spec.terrain_geoms and len(self._body_geoms):
+            self._samples = tuple(jp.asarray(a) for a in body_samples(raw._mj_model, self._body_geoms))
         self._scales = dict(raw._config.reward_config.scales)
         self._episode_length = int(raw._config.episode_length)
         self.min_height = self.robot.min_height
@@ -139,15 +172,23 @@ class NemesisWrapper(pg_wrapper.Wrapper):
 
     # --- Fall detection ---
 
-    def fallen(self, data):
-        """Real fall: a non-foot body touches the ground, the trunk tilts too far, the root is too
-        low, or the simulation diverged (non-finite state)."""
+    def fallen(self, data, theta=None, origin=None):
+        """Real fall: a non-foot body touches the ground (the floor, or a step when θ and the start
+        pose `origin` (x, y, yaw) are given), the trunk tilts too far, the root is too low, or the
+        simulation diverged (non-finite state)."""
         c = data.contact
         g0, g1, floor = c.geom[:, 0], c.geom[:, 1], self.spec.floor
         # Only body-floor contacts: G1 also has explicit hand-thigh contact pairs.
         body = (((g0 == floor) & jp.isin(g1, self._body_geoms))
                 | ((g1 == floor) & jp.isin(g0, self._body_geoms)))
         touching = jp.any(body & (c.dist < 0.0)) if self._body_geoms.size else False
+        if self._samples is not None and theta is not None:
+            # Steps only collide with the feet (envs.base), so a body touching a step is found
+            # geometrically: points over the body's collision geoms inside a step.
+            geom, local, radius = self._samples
+            pts = data.geom_xpos[geom] + jp.einsum("pij,pj->pi", data.geom_xmat[geom], local)
+            touching = touching | terrain.touches(pts, radius, theta, origin[:2], origin[2], self.layout,
+                                                  len(self.spec.terrain_geoms), jp)
         up_z = data.xmat[self.spec.trunk][2, 2]
         diverged = ~(jp.isfinite(data.qpos).all() & jp.isfinite(data.qvel).all())
         return touching | (up_z < self.min_up_z) | (data.qpos[2] < self.min_height) | diverged
@@ -199,8 +240,8 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         rng, k_obs, k_theta, k_dr = jax.random.split(info["nemesis_rng"], 4)
         time = t * self.dt
 
-        # Start pose (x, y, heading), taken at the first step of each episode: the ice patch is
-        # measured along the heading, and slopes and pushes are defined relative to it.
+        # Start pose (x, y, heading), taken at the first step of each episode: the ice patch and
+        # the stairs are placed along the heading, and slopes and pushes are defined relative to it.
         q = state.data.qpos
         yaw = 2 * jp.arctan2(q[6], q[3])
         origin = jp.where(t == 0, jp.array([q[0], q[1], yaw]), info["nemesis_origin"])
@@ -210,14 +251,21 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         applied, buf = A.delay_action(theta, info["nemesis_buf"], action, sp)
         xfrc = state.data.xfrc_applied.at[sp.trunk, :3].set(A.push_force(theta, time, origin[2], sp))
         info["command"] = A.command(theta, time, info["command"], sp)
-        state = state.replace(data=state.data.replace(xfrc_applied=xfrc))
+
+        data = state.data.replace(xfrc_applied=xfrc)
+        if sp.terrain_geoms:  # stairs: move the step boxes (data only; parked when θ has none)
+            pos, quat = A.terrain_mocap(theta, origin, sp)
+            mocap = jp.array(sp.terrain_mocap)
+            data = data.replace(mocap_pos=data.mocap_pos.at[mocap].set(pos),
+                                mocap_quat=data.mocap_quat.at[mocap].set(quat))
+        state = state.replace(data=data)
 
         with self._perturbed(theta_now, dr, origin[2]):
             state = self.env.step(state, applied)
 
         # Strict termination and unclipped reward (Playground clips the per-step reward at 0),
         # with a real fall penalty.
-        fall = self.fallen(state.data)
+        fall = self.fallen(state.data, theta_now, origin)
         env_done = state.done > 0
         done = env_done | fall
         rewards = sum(state.metrics[f"reward/{k}"] for k in self._scales)

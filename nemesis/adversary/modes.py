@@ -18,12 +18,20 @@ FAMILIES = {
     "push": ("push1_force", "push1_start", "push1_duration", "push2_force", "push2_start", "push2_duration"),
     "timing": ("latency",),
     "sensing": ("obs_noise", "joint_offset", "imu_bias", "linvel_bias"),
+    "terrain": ("stairs_height", "stairs_depth", "stairs_count", "stairs_start"),
 }
 DIRECTIONS = ("forward", "backward", "left", "right")
 OP_FAMILY = {"friction": "friction", "ice_patch": "friction", "payload": "load", "slope": "slope",
              "motor": "actuation", "joint_friction": "actuation", "push": "push", "latency": "timing",
              "sensor_noise": "sensing", "encoder_offset": "sensing", "imu_bias": "sensing",
-             "velocity_bias": "sensing", "command": None}
+             "velocity_bias": "sensing", "command": None, "stairs": "terrain", "curb": "terrain"}
+
+
+def families(L=C.GO1) -> dict:
+    """FAMILIES restricted to the slots that exist in layout L (robots without terrain lack the
+    terrain family)."""
+    out = {f: tuple(s for s in slots if s in L.INDEX) for f, slots in FAMILIES.items()}
+    return {f: slots for f, slots in out.items() if slots}
 
 
 def allowed_slots(families, L=C.GO1) -> set[str]:
@@ -34,12 +42,24 @@ def allowed_slots(families, L=C.GO1) -> set[str]:
     keep = {"command_mode", "command_a", "command_b", "command_switch"}
     for f in families:
         keep |= set(FAMILIES[f])
-    return keep
+    return keep & {s.name for s in L.SLOTS}
+
+
+def has_terrain(theta: np.ndarray, L=C.GO1) -> bool:
+    """θ puts at least one step on the ground (riser >= 1 mm, rounded count >= 1). The terrain
+    slots' neutral is 0, but stairs_depth/stairs_start are never "neutral" inside their range, so
+    this, not "a non-neutral terrain slot", says whether a scenario has terrain."""
+    from nemesis.perturb import terrain
+    if not terrain.has_terrain(L):
+        return False
+    return bool(terrain.segments(np.asarray(theta, np.float64), L, 1)[2][0])
 
 
 def cause_family(theta: np.ndarray, L=C.GO1) -> str:
     dev = np.abs(np.asarray(theta) - L.NEUTRAL) / L.SPAN
-    scores = {fam: max(dev[L.INDEX[s]].max() for s in slots) for fam, slots in FAMILIES.items()}
+    # Slots whose neutral is an "off" marker (stairs_depth, stairs_start) carry no magnitude.
+    dev = np.where(L.NEUTRAL_OFF, 0.0, dev)
+    scores = {fam: max(dev[L.INDEX[s]].max() for s in slots) for fam, slots in families(L).items()}
     fam, score = max(scores.items(), key=lambda kv: kv[1])
     return fam if score > 1e-6 else "command"  # only the command profile was changed
 

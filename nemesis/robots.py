@@ -63,6 +63,10 @@ class Robot:
     push_note: str = "60-120 N for 0.1 s is a strong shove"
     # Base domain randomization (Playground-equivalent).
     dr_frictionloss: tuple = (0.9, 1.1)
+    # Terrain: number of static step boxes envs.base adds to the scene for stairs and curbs
+    # (0 = flat ground only, and the θ layout has no terrain slots). See apply.terrain_boxes.
+    terrain_boxes: int = 0
+    hip_height: float = 0.3       # standing hip height (slot docs: how big a step is for this robot)
 
     @property
     def joints(self) -> tuple:
@@ -81,6 +85,7 @@ GO1 = Robot(
     foot_geoms=("FR", "FL", "RR", "RL"),
     foot_friction_cap=0.6,  # the floor geom's friction in Playground's Go1 scene
     collision_parts={"trunk": _BOX, "thigh": _CAP, "calf": _CAP},
+    terrain_boxes=8,
 )
 
 G1_LEG = ("hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll")
@@ -144,6 +149,16 @@ def for_env(env_name: str) -> Robot:
     raise KeyError(f"no robot registered for {env_name}")
 
 
+def terrain_body(i: int) -> str:
+    """Name of the i-th step box's mocap body (envs.base adds them after the robot's bodies)."""
+    return f"nemesis_terrain{i}"
+
+
+def terrain_geom(i: int) -> str:
+    """Name of the i-th step box geom."""
+    return f"nemesis_step{i}"
+
+
 @dataclass(frozen=True)
 class Spec:
     """A Robot resolved against its loaded MuJoCo model (static ints, safe to close over in jit)."""
@@ -161,6 +176,8 @@ class Spec:
     nbody: int
     body_geoms: tuple = ()
     joints: tuple = ()      # joint id per θ joint (joint-level actuator force limits)
+    terrain_geoms: tuple = ()  # step boxes (on mocap bodies after the robot's); () = no terrain
+    terrain_mocap: tuple = ()  # mocap id of each step box's body
 
     @property
     def min_up_z(self) -> float:
@@ -189,14 +206,21 @@ def resolve(robot: "str | Robot", m, body_geoms=()) -> Spec:
         nbody=m.nbody,
         body_geoms=tuple(int(g) for g in body_geoms),
         joints=tuple(jnts),
+        terrain_geoms=tuple(g for g in (oid(mujoco.mjtObj.mjOBJ_GEOM, terrain_geom(i))
+                                        for i in range(r.terrain_boxes)) if g >= 0),
+        terrain_mocap=tuple(int(m.body_mocapid[b]) for b in (oid(mujoco.mjtObj.mjOBJ_BODY, terrain_body(i))
+                                                            for i in range(r.terrain_boxes)) if b >= 0),
     )
 
 
 # Go1's ids in Playground's Go1 Joystick model (what the pipeline hardcoded before the registry);
 # tests check that resolve() reproduces them. Used as the default when no env is at hand.
+# load_env appends 8 mocap bodies (ids 14-21) with one step box each (geoms 51-58) after the
+# robot, so no robot id moves.
 GO1_SPEC = Spec(
     robot=GO1, trunk=1, floor=0, foot_geoms=(15, 26, 38, 50), foot_pairs=(),
     actuators=tuple(range(12)), joint_qpos=tuple(range(12)),
     joint_bodies=(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13),
-    foot_sites=(2, 3, 4, 5), imu_site=-1, nu=12, nbody=14, joints=tuple(range(1, 13)),
+    foot_sites=(2, 3, 4, 5), imu_site=-1, nu=12, nbody=22, joints=tuple(range(1, 13)),
+    terrain_geoms=tuple(range(51, 59)), terrain_mocap=tuple(range(8)),
 )

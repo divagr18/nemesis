@@ -41,10 +41,13 @@ def _task_theta(robot="go1") -> np.ndarray:
 def envelope(width: float = 1.0, robot="go1") -> tuple[np.ndarray, np.ndarray]:
     """(lo, hi) of the envelope scaled toward nominal: width 1 is the full physical envelope,
     width 0.25 keeps each slot within a quarter of its range around nominal. The command
-    profile always spans its full range (it is the task, not a perturbation)."""
+    profile always spans its full range (it is the task, not a perturbation), and so do slots
+    whose neutral is an "off" marker outside their range (stairs_depth, stairs_start: shape and
+    position, which only matter once stairs_height and stairs_count turn the steps on)."""
     L = C.layout(robot)
     lo = L.NEUTRAL + width * (L.LO - L.NEUTRAL)
     hi = L.NEUTRAL + width * (L.HI - L.NEUTRAL)
+    lo, hi = np.where(L.NEUTRAL_OFF, L.LO, lo), np.where(L.NEUTRAL_OFF, L.HI, hi)
     for name in ("command_a", "command_b", "command_switch"):
         sl = L.INDEX[name]
         lo[sl], hi[sl] = L.LO[sl], L.HI[sl]
@@ -111,6 +114,15 @@ def _templates(robot="go1") -> dict:
     rb, L = robots.get(robot), C.layout(robot)
     legs, parts = list(rb.feet), list(rb.joint_parts)
     push = _range(L, "push1_force")
+    terrain = {}
+    if rb.terrain_boxes:
+        # Count starts at 1 (0 would be flat ground; a curb is its own op).
+        terrain = {
+            "stairs": lambda r: {"height": _range(L, "stairs_height"), "depth": _range(L, "stairs_depth"),
+                                 "count": [1.0, _range(L, "stairs_count")[1]],
+                                 "start": _range(L, "stairs_start")},
+            "curb": lambda r: {"height": _range(L, "stairs_height"), "start": _range(L, "stairs_start")},
+        }
     return {
         "friction": lambda r: {"feet": r.sample(legs, r.randint(1, len(legs))), "mu": [0.05, 1.5]},
         "ice_patch": lambda r: {"mu": [0.05, 1.0], "start": [0.0, 6.0], "length": [0.0, 4.0]},
@@ -127,7 +139,7 @@ def _templates(robot="go1") -> dict:
                                      "joints": r.sample(parts, r.randint(1, 3)), "offset": [-0.05, 0.05]},
         "imu_bias": lambda r: {"roll": [-0.08, 0.08], "pitch": [-0.08, 0.08]},
         "velocity_bias": lambda r: {"x": [-0.3, 0.3], "y": [-0.3, 0.3]},
-    }
+    } | terrain
 
 
 _TEMPLATES = _templates("go1")
@@ -144,8 +156,8 @@ def random_program(n_ops: int, seed: int, families=None, robot="go1"):
     n_ops = min(n_ops, len(pool))
     while True:
         ops = [task] + [{"op": op, **templates[op](r)} for op in r.sample(pool, n_ops)]
-        p = Program.model_validate({"name": f"shuffled_{seed}", "hypothesis": "random control", "ops": ops})
-        try:
+        try:  # invalid: e.g. both stairs and curb drawn (one terrain op per program)
+            p = Program.model_validate({"name": f"shuffled_{seed}", "hypothesis": "random control", "ops": ops})
             if compile_program(p, robot).k <= K_MAX:
                 return p
         except ValueError:

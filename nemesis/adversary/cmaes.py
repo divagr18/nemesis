@@ -25,8 +25,12 @@ SEARCH_FAIL = 0.75  # during search a candidate only "fails" above this, so it i
 SHRINK_FAIL = 0.8   # shrinking stops while the failure is still clearly reproducible
 
 
+# The command profile is the task; start times and positions, and the stairs' tread depth, say
+# when/where/what shape, not how strong (stairs_depth and stairs_start also have an "off" neutral
+# of 0 outside their range, so |θ - neutral| would be meaningless). stairs_height and
+# stairs_count are magnitudes: a 15 cm riser is a full-envelope deviation, as is 8 steps.
 NOT_MAGNITUDES = ("command_mode", "command_a", "command_b", "command_switch",
-                  "push1_start", "push2_start", "ice_start")
+                  "push1_start", "push2_start", "ice_start", "stairs_depth", "stairs_start")
 
 
 def _layout(evaluator):
@@ -41,7 +45,8 @@ def plausibility_cost(thetas: np.ndarray, L=C.GO1) -> np.ndarray:
     dev = np.abs(thetas - L.NEUTRAL) / L.SPAN
     # The command profile is the task, and start times/positions are timing, not magnitude.
     for name in NOT_MAGNITUDES:
-        dev[:, L.INDEX[name]] = 0
+        if name in L.INDEX:
+            dev[:, L.INDEX[name]] = 0
     n = np.maximum((dev > 1e-6).sum(1), 1)
     return np.sqrt((dev**2).sum(1) / n)
 

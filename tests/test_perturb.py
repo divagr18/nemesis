@@ -44,7 +44,8 @@ def theta_with(**slots):
 
 def test_layout():
     assert C.USED <= C.D
-    assert np.all(C.LO <= C.NEUTRAL) and np.all(C.NEUTRAL <= C.HI)
+    inside = (C.LO <= C.NEUTRAL) & (C.NEUTRAL <= C.HI)
+    assert np.all(inside | C.GO1.NEUTRAL_OFF)  # stairs_depth/start: "off" neutral 0 outside the range
     assert C.describe(C.neutral()) == {}
 
 

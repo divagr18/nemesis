@@ -26,6 +26,7 @@ from nemesis import robots
 from nemesis.perturb import canonical as C
 
 K_MAX = 10  # max free parameters per program (padded, so search compiles once)
+CURB_DEPTH = 0.3  # a curb is one step; its top continues as a landing whatever the depth
 
 Num = Union[float, tuple[float, float]]  # fixed value, or [lo, hi] to search
 
@@ -99,6 +100,22 @@ class Command(_Op):
     switch: Num = 20.0
 
 
+class Stairs(_Op):
+    """Steps rising away from the robot, straight across its initial path (robots with terrain)."""
+    op: Literal["stairs"]
+    height: Num        # riser height per step (m)
+    depth: Num = 0.3   # tread depth (m)
+    count: Num         # number of steps (rounded)
+    start: Num         # distance from the start position to the first riser (m)
+
+
+class Curb(_Op):
+    """A single step up onto a raised walkway: stairs with count 1."""
+    op: Literal["curb"]
+    height: Num
+    start: Num
+
+
 def _robot_ops(r: robots.Robot):
     """The ops whose fields name the robot's legs and joints."""
     LEGS = Literal[tuple(r.feet)]
@@ -121,9 +138,11 @@ def _robot_ops(r: robots.Robot):
         joints: list[JOINT] = Field(min_length=1)
         offset: Num
 
-    Op = Annotated[Union[Friction, IcePatch, Payload, Slope, Motor, JointFriction, Latency, Push,
-                         SensorNoise, EncoderOffset, ImuBias, VelocityBias, Command],
-                   Field(discriminator="op")]
+    ops = (Friction, IcePatch, Payload, Slope, Motor, JointFriction, Latency, Push, SensorNoise,
+           EncoderOffset, ImuBias, VelocityBias, Command)
+    if r.terrain_boxes:
+        ops += (Stairs, Curb)
+    Op = Annotated[Union[ops], Field(discriminator="op")]
 
     class Program(BaseModel):
         model_config = ConfigDict(extra="forbid")
@@ -136,6 +155,8 @@ def _robot_ops(r: robots.Robot):
         def _at_most_two_pushes(cls, ops):
             if sum(isinstance(o, Push) for o in ops) > 2:
                 raise ValueError("at most 2 push ops")
+            if sum(isinstance(o, (Stairs, Curb)) for o in ops) > 1:
+                raise ValueError("at most 1 stairs or curb op")
             return ops
 
     return Friction, Motor, EncoderOffset, Op, Program
@@ -264,6 +285,11 @@ class Language:
                 case "velocity_bias":
                     for j, ax in enumerate("xyz"):
                         put("linvel_bias", [j], getattr(op, ax), f"{tag}.{ax}")
+                case "stairs" | "curb":
+                    put("stairs_height", [0], op.height, f"{tag}.height")
+                    put("stairs_depth", [0], op.depth if op.op == "stairs" else CURB_DEPTH, f"{tag}.depth")
+                    put("stairs_count", [0], op.count if op.op == "stairs" else 1.0, f"{tag}.count")
+                    put("stairs_start", [0], op.start, f"{tag}.start")
                 case "command":
                     base[L.INDEX["command_mode"]] = 1.0
                     b = op.b if op.b is not None else op.a

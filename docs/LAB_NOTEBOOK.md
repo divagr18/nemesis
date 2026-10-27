@@ -473,6 +473,75 @@ A second Opus audit read the perturbation, wrapper, evaluator and training code 
 
 **Effect on earlier results:** Go1 results without single-subset friction or payload ops are unaffected (bit-identical physics). Per-foot friction attacks should be read as all-feet friction, payload attacks had wrong rotational inertia, and G1 runs longer than 5 s included random kicks. The study's tables were not re-run.
 
+## Oct 27: terrain (stairs and curbs)
+
+P11 (Go1 only; the G1 gets it later through the same registry hook, `Robot.terrain_boxes`). Shared geometry is in `nemesis/perturb/terrain.py` (numpy or JAX, no JAX import). Physics, mp4 overlays and the replay export all use it.
+
+- **θ layout v2** (`THETA_LAYOUT_VERSION` = 2). Four slots are appended after the original 63, whose indices, neutral values, ranges and spans are unchanged (pinned by a test). D stays 80, and G1's layout and hash are unchanged.
+  - `stairs_height` 0–0.15 m, `stairs_depth` 0.2–0.6 m, `stairs_count` 0–8 (rounded), `stairs_start` 0.5–3 m.
+  - Neutral is 0 for all four, which is the padding value, so every older θ means flat ground. Depth and start are flagged `neutral_off`: their 0 is an "off" marker outside the range. `clip()` keeps that marker, and `normalized()` maps it to −1 as the padding did, so the critic input is unchanged for old θ. Placement clamps depth and start to their range.
+- **Scene: 8 step boxes on mocap bodies** (ids 14–21, geoms 51–58), appended after the robot by an MjSpec rebuild, so no robot id moves.
+  - Every box has the same fixed size: 2.4 × 3 × 1.5 m.
+  - Each episode, the wrapper moves box i through `data.mocap_pos`/`mocap_quat` so that its top front edge sits on riser i, in the start-heading frame. The frame is the ice patch's: start pose taken at the first step.
+  - Later (taller) boxes cover the rest of each box, so the union is the staircase. The top step continues 2.4 m from its riser as a landing (the plan said depth + 2 m). Unused boxes are parked at z = −10.
+  - Only data changes, never a model field. A first version moved and resized boxes through `geom_pos`/`geom_size`; that made those model arrays traced instead of constant, and the physics compiled differently (float drift on every rollout).
+  - A curb is stairs with count 1.
+- **Contacts: feet only (lead's decision).**
+  - Making every body geom collide with the 8 boxes raised contacts from 24 to 216. Wrapped Go1 steps per second on CPU, as a fraction of no step collisions:
+
+    | Variant | Speed |
+    |---|---|
+    | all body geoms | 0.20× |
+    | feet + trunk + calves | 0.27× |
+    | all body geoms, condim 1 | 0.25× |
+    | all body geoms, 4 boxes | 0.33× |
+    | feet only | 0.68× |
+
+    The cost is MJX's capsule-box and box-box collision functions, not the solver.
+  - Steps have contype 2 and the feet have conaffinity |= 2. The floor pairs are unchanged.
+  - Steps carry the floor's contact parameters and priority, so foot-step contacts use each foot's own friction, exactly as foot-floor contacts do (the audit's per-foot rule).
+  - **A body touching a step is still a fall,** found geometrically: 378 sample spheres over the trunk box surface and the thigh/calf capsule axes, 2 cm apart, are tested against the exact box SDF of each used step (`terrain.touches`). After the fall, the trunk and legs pass through the steps; the server trims terrain clips after the fall.
+  - Speed, baseline_v2 policy, 1024 envs on the 4060: 155k → 104k steps/s (0.67×). The touch check costs nothing measurable (106k without it).
+- **Playground's foot-contact sensors** (`*_floor_found`, used by `feet_air_time`/`feet_slip`, `last_contact` in the critic input) hardcode the floor geom, so a foot on a step reads "no contact". This affects training rewards only, not evaluation, attacks or the policy's observation. Not patched.
+- **DSL:** `stairs` {height, depth = 0.3, count, start} and `curb` {height, start}, with at most one terrain op per program. Only robots with terrain get them; the G1 schema is unchanged.
+  - Slot docs give realistic values: threshold 0.02–0.03 m, curb 0.10–0.15 m; household risers (0.15–0.18 m) are beyond this robot, whose hip is about 0.3 m high.
+  - The proposer prompt now names steps/curbs as a target, and a fall as touching "the ground or a step".
+- **Families and metrics:** a `terrain` family (`stairs`, `curb` → terrain). `stairs_depth` and `stairs_start` join `NOT_MAGNITUDES`. This is categorization only: they are shape and position, like the start times, and their off-marker neutral makes |θ − neutral| meaningless. The strict definition (total deviation ≤ 1, ≤ 3 families, fall rate in [0.5, 0.95)) is unchanged.
+  - Height and count stay magnitudes: a 15 cm riser is a full-envelope deviation, as are 8 steps. A 10 cm curb has total deviation 0.68, one family.
+  - `cause_family` ignores `neutral_off` slots.
+  - `modes.has_terrain(θ)` is the physical test: a riser ≥ 1 mm and a rounded count ≥ 1. `analyze.py` reports `strict_terrain_failures` with it.
+- **Controls:**
+  - Random-program templates `stairs` (height 0–0.15, depth 0.2–0.6, count 1–8, start 0.5–3) and `curb`. Any given seed now draws different programs than before, because the op pool grew.
+  - `envelope(width)` keeps the full range for depth/start at any width.
+  - The box arm covers slots 63–66.
+  - Uniform θ has stairs in about 93% of draws, which matters for any future uniform-DR training.
+
+### Verification (PC CPU unless noted)
+- **Old vs new code, production evaluator (`Evaluator`, baseline_v2, 250 steps, 16 seeds): bit-identical.** Inputs were the 23 θ vectors in `runs/serve_dev/attacks.jsonl` plus the audit's six scenarios (neutral, forward, all-feet μ 0.08, one rear foot μ 0.05, 5 kg high-back payload, 150 N shove). Every output was identical, `qpos` included.
+- **The audit's own script (`compare_rollouts.py`, a different jitted graph) is not bit-identical.** It differs by float rounding from the first step (about 1e-9 m in qpos), which grows chaotically (neutral 0.39 m by step 300; ice μ 0.08 falls on 3/4 seeds old, 0/4 new).
+  - Bisection: the model, the extra foot contacts and the mocap placement alone are bit-identical. Adding the geometric touch check to that graph changes XLA's CPU compilation, even when the check reads only constants (with or without `optimization_barrier`).
+  - That is compiler sensitivity, not physics: the old code run with Eigen threading off differs from itself by the same amount (0.70 m in "forward").
+- **Box under a standing robot:** all four feet make contact with the step and the trunk rises 0.10 m for a 10 cm step (`test_robot_stands_on_a_step`). A 15 cm step around the legs is a fall; one 2 m ahead is not.
+- **`baseline_v2`, 16 seeds, 5 s, forward 1 m/s, everything starting 1 m ahead (depth 0.3 m)** (`experiments/terrain_check.py`):
+
+  | Scenario | Falls | Progress (m), mean [min, max] | Median time to fall (s) | Reached the top |
+  |---|---|---|---|---|
+  | flat | 0% | 4.56 [4.49, 4.60] | - | - |
+  | curb 2 cm | 0% | 4.56 [4.50, 4.61] | - | 100% |
+  | curb 4 cm | 0% | 4.49 [4.25, 4.60] | - | 100% |
+  | curb 6 cm | 44% | 2.99 [0.81, 4.52] | 1.54 | 56% |
+  | curb 8 cm | 88% | 1.46 [0.99, 4.40] | 1.44 | 12% |
+  | curb 10 cm | 100% | 0.98 [0.88, 1.05] | 1.38 | 0% |
+  | curb 12 cm | 100% | 0.97 [0.94, 0.99] | 1.35 | 0% |
+  | stairs 3 × 6 cm | 100% | 1.19 [0.72, 1.63] | 2.23 | 0% |
+  | stairs 5 × 8 cm | 100% | 1.05 [0.99, 1.19] | 1.45 | 0% |
+
+  - A cliff between 4 and 8 cm. A cause probe (same seeds, no episode reset) shows that almost every fall is a body-step touch (the shins hitting the riser): 5 of 6 falls at 6 cm, 14/14 at 8 cm, 16/16 at 10 and 12 cm, 14/16 and 16/16 on the two stairs.
+  - At 10–12 cm, 16 of those 32 touches were not followed by a tilt or height fall within 1 s (the robot jams its legs into the curb and stalls at the riser; the legs pass through after the touch, so this is only indicative). Under the strict rule that is a fall; in reality it is "blocked". Read high-curb failures as "cannot step up", not "tumbles".
+- **Clips** (overlays: concrete steps, ember nosing): `runs/terrain_clips/go1_curb_trip.mp4` (8 cm curb, seed 1) and `go1_stairs_attempt.mp4` (5 × 8 cm), plus `_slowmo` copies and `table.json`.
+- **Tests:** `tests/test_terrain.py` (20 tests): layout prefix, zero padding = flat, placement math (numpy = JAX), rounding/clamping, exact SDF, DSL round trip, families and plausibility, strict metric, controls, export format, rebuild keeps every robot model field, steps are data not model, stand on a step, body on a step = fall. The Go1 layout-hash test now pins v2 (`fef3fefa…`; v1 was `fdbcd0f6…`), and G1's hash is pinned unchanged.
+- **Full suite on the PC's CPU:** 81 passed, plus 1 failure that predates this work (`test_robots.py::test_humanoid_wrapper`, G1 pelvis height 0.077 < 0.1).
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|

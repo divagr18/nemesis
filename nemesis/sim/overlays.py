@@ -5,6 +5,7 @@
   payload        crimson box on the trunk at the payload offset, sized by mass
   push           crimson arrow into the trunk while a push is active, length ~ force
   weak motors    leg segments tinted crimson in proportion to the strength lost
+  stairs/curb    concrete-grey steps where θ puts them, an ember strip along each riser's top edge
 
 usage:
     model, scene_fn = overlays(mj_model, theta, qpos, dt, robot="go1")
@@ -18,9 +19,13 @@ import numpy as np
 
 from nemesis import robots
 from nemesis.perturb import canonical as C
+from nemesis.perturb import terrain
 
 ICE = np.array([0.55, 0.82, 1.0, 0.45], np.float32)
 CRIMSON = np.array([0.88, 0.11, 0.28, 0.95], np.float32)
+CONCRETE = np.array([0.6, 0.6, 0.58, 1.0], np.float32)
+EMBER = np.array([0.96, 0.36, 0.12, 1.0], np.float32)
+NOSING = 0.012  # half-thickness of the ember strip along each riser's top edge
 TRUNK = robots.GO1_SPEC.trunk
 FEET_SITES = robots.GO1.foot_sites
 
@@ -82,8 +87,20 @@ def overlays(mj_model, theta, qpos: np.ndarray, dt: float, robot: "str | robots.
                 f += _s(f"{k}_force")
         return R0 @ f  # start-heading frame -> world, as in apply.push_force
 
+    # Stairs: drawn from θ as non-overlapping blocks (the physics boxes are hidden mocap boxes
+    # that overlap below each step's top), with an ember strip along each riser's top edge.
+    steps = []
+    if terrain.has_terrain(L):
+        for x0, x1, h in terrain.columns(theta, L, robots.get(robot).terrain_boxes):
+            mid, nose = origin + heading * (x0 + x1) / 2, origin + heading * (x0 + NOSING - 0.001)
+            half_w = terrain.STEP_WIDTH / 2
+            steps.append(([(x1 - x0) / 2, half_w, h / 2], [mid[0], mid[1], h / 2], CONCRETE))
+            steps.append(([NOSING, half_w + 0.001, 0.004], [nose[0], nose[1], h - 0.003], EMBER))
+
     def scene_fn(scene, data, t):
         time = t * dt
+        for size, pos, rgba in steps:
+            _add(scene, mujoco.mjtGeom.mjGEOM_BOX, size, pos, R0, rgba)
         if ice_len > 0.01 and ice_mu < 0.6:
             center = origin + heading * (ice_start + ice_len / 2)
             _add(scene, mujoco.mjtGeom.mjGEOM_BOX, [ice_len / 2, 0.9, 0.003],

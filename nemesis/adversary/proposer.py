@@ -22,7 +22,7 @@ Robot: Unitree Go1 (12 kg, 12 position-controlled motors, Kp=35, torque limits 2
 yaw rate) on flat ground with mild domain randomization. It observes 3 frames of: body linear
 velocity estimate, gyro, gravity direction, joint angles and velocities, last action, command.
 Each attack episode lasts 5 seconds (250 control steps at 50 Hz). A failure is a fall: any body
-part other than the feet touching the ground, tilt beyond 45 degrees, or trunk below 0.18 m.
+part other than the feet touching the ground or a step, tilt beyond 45 degrees, or trunk below 0.18 m.
 
 How to attack well:
 - Think like a robotics engineer: form a specific HYPOTHESIS about a weakness (e.g. "the trot relies
@@ -33,6 +33,8 @@ How to attack well:
   30% slope teaches nothing; a failure at wet-tile friction with a 3 kg backpack does.
 - Combine primitives in time and space: command reversals, pushes timed during a turn, ice patches
   the robot walks onto, sensor biases while carrying load.
+- Terrain counts too: a curb or a short flight of steps placed across the robot's path, alone or
+  with other conditions. The policy has only ever walked on flat ground, and its hip is ~0.3 m high.
 - Do not repeat programs that already failed to break the robot, and do not re-find a failure
   family that is already in the archive unless you have a sharper hypothesis about it.
 

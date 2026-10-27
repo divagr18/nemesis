@@ -26,21 +26,25 @@ def _layout_hash(L) -> str:
 
 
 def test_go1_layout_is_frozen():
-    """Existing checkpoints, gauntlets and atlases depend on Go1's θ layout (commit a71c67f)."""
-    assert _layout_hash(C.GO1) == "fdbcd0f6561f58d928bb3498403bb692d5daadf05ea8e74f5b7560fbef5fb695"
-    assert C.D == 80 and C.USED == 63 and C.layout("go1") is C.GO1
+    """Existing checkpoints, gauntlets and atlases depend on Go1's θ layout. Version 2 (Oct 27)
+    appended the 4 terrain slots after the original 63 (hash fdbcd0f6... before); the first 63
+    slots are pinned by tests/test_terrain.py::test_layout_prefix_unchanged."""
+    assert _layout_hash(C.GO1) == "fef3fefabcf442d671fb04fb366d734f3bceedc84eb685d50524cbe7126fdbd2"
+    assert C.D == 80 and C.USED == 67 and C.layout("go1") is C.GO1
+    # G1 has no terrain yet: its layout is unchanged.
+    assert _layout_hash(G1) == "1177946dca094cd942b4e42afa3f513b745a765082826a597ba6e2dee863abbc"
     assert C.INDEX is C.GO1.INDEX and C.JOINTS[0] == "FR_hip" and C.FEET == ("FR", "FL", "RR", "RL")
 
 
 def test_humanoid_layout():
-    assert G1.D == C.D and G1.USED == C.USED - 2  # 2 feet instead of 4, 12 leg joints as before
+    assert G1.D == C.D and G1.USED == 63 - 2  # 2 feet instead of 4, 12 leg joints, no terrain
     assert G1.FEET == ("L", "R") and len(G1.JOINTS) == 12 and G1.JOINTS[3] == "L_knee"
     assert np.all(G1.LO <= G1.NEUTRAL) and np.all(G1.NEUTRAL <= G1.HI)
     assert G1.describe(G1.neutral()) == {}
     assert G1.SLOT["foot_friction"].neutral == 0.6  # G1's foot-floor pair friction
     assert G1.SLOT["push1_force"].hi == robots.G1.push_max
     assert np.isfinite(G1.normalized(G1.NEUTRAL)).all()
-    assert [s.name for s in G1.SLOTS] == [s.name for s in C.SLOTS]
+    assert [s.name for s in G1.SLOTS] == [s.name for s in C.SLOTS if not s.name.startswith("stairs_")]
 
 
 def test_robot_lookup():
@@ -91,7 +95,7 @@ def test_humanoid_controls():
     from nemesis.adversary.baselines import BoxProgram, random_program, random_thetas
     th = random_thetas(16, np.random.default_rng(0), robot="g1")
     assert np.all(th >= G1.LO - 1e-6) and np.all(th <= G1.HI + 1e-6)
-    assert BoxProgram(robot="g1").k == BoxProgram().k - 2
+    assert BoxProgram(robot="g1").k == BoxProgram().k - 2 - 4  # 2 feet fewer, no terrain slots
     for seed in range(10):
         c = dsl.compile_program(random_program(3, seed, robot="g1"), "g1")
         assert 1 <= c.k <= dsl.K_MAX

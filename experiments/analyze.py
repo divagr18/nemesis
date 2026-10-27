@@ -68,6 +68,7 @@ def _strict_ok(rec) -> bool:
 
 def discovery(runs: dict) -> dict:
     """Distinct plausible+feasible failure modes per round (cumulative), per arm and seed."""
+    from nemesis.adversary.modes import has_terrain
     out = {}
     for arm, seeds in runs.items():
         out[arm] = {}
@@ -92,6 +93,8 @@ def discovery(runs: dict) -> dict:
             out[arm][seed] = {
                 "modes_per_round": per_round,
                 "strict_modes_per_round": strict_round, "strict_failures": len(strict),
+                # H-S primary metric: strict failures whose θ puts steps on the ground.
+                "strict_terrain_failures": sum(has_terrain(np.asarray(x["theta"], np.float32)) for x in strict),
                 "families_active": int(np.median([_total_dev_and_families(x["theta"])[1] for x in all_fail]))
                                    if all_fail else None,
                 "failures": len(all_fail), "plausible_feasible": len(ok),

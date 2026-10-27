@@ -10,6 +10,9 @@ size of rounded JSON lists and decoded in the browser with one typed-array view.
 MuJoCo order (w, x, y, z); positions are world frame, z up.
 
 Overlays follow nemesis/sim/overlays.py (the mp4 overlays) so both views show the same attack.
+overlays.terrain is {"steps": [{"x0", "x1", "height"}, ...], "width": 3.0} or null: solid blocks from
+the floor up to `height`, spanning x0..x1 m along the start heading from overlays.start.origin and
+`width` m across, centred on it (start-heading frame; perturb/terrain.py is the shared geometry).
 
 usage:
     python -m nemesis.sim.export --sample        # writes web/dist/assets/{go1_scene,sample_traj*}.json
@@ -24,7 +27,9 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
+from nemesis import robots
 from nemesis.perturb import canonical as C
+from nemesis.perturb import terrain
 
 VERSION = 1
 TRUNK = 1
@@ -57,9 +62,11 @@ def _name(m, obj, i):
 
 
 def visual_geoms(m: mujoco.MjModel) -> list[int]:
-    """Geoms the default renderer draws on robot bodies (world geoms are the floor)."""
+    """Geoms the default renderer draws on robot bodies. World geoms (the floor) and load_env's
+    step boxes (mocap bodies, hidden; drawn from overlays.terrain instead) are not."""
     return [g for g in range(m.ngeom)
-            if m.geom_bodyid[g] != 0 and m.geom_group[g] < VISIBLE_GROUPS and _rgba(m, g)[3] > 0]
+            if m.geom_bodyid[g] != 0 and m.body_mocapid[m.geom_bodyid[g]] < 0
+            and m.geom_group[g] < VISIBLE_GROUPS and _rgba(m, g)[3] > 0]
 
 
 def drawn_bodies(m: mujoco.MjModel) -> list[int]:
@@ -156,8 +163,12 @@ def overlay_spec(mj_model: mujoco.MjModel, theta, q0: np.ndarray) -> dict:
     heading = np.array([np.cos(yaw0), np.sin(yaw0)])
     R0 = _rot_z(yaw0)
     out = {"start": {"origin": _r(origin), "yaw": round(yaw0, 5)}, "ice": None, "slippery_feet": [],
-           "payload": None, "pushes": [], "weak": [], "slope": None, "command": None,
+           "payload": None, "pushes": [], "weak": [], "slope": None, "command": None, "terrain": None,
            "conditions": C.describe(np.asarray(theta, np.float32))}
+
+    # Stairs/curb in the start-heading frame: x0/x1 along the heading from the start origin.
+    if terrain.has_terrain(C.GO1):
+        out["terrain"] = terrain.export_steps(theta, C.GO1, robots.GO1.terrain_boxes)
 
     ice_mu, ice_start, ice_len = (float(_slot(theta, k)[0]) for k in ("ice_mu", "ice_start", "ice_length"))
     if ice_len > 0.01 and ice_mu < 0.6:

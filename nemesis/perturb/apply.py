@@ -10,6 +10,7 @@ from mujoco.mjx._src import math as mjx_math
 
 from nemesis import robots
 from nemesis.perturb import canonical as C
+from nemesis.perturb import terrain
 
 GO1 = robots.GO1_SPEC
 TRUNK = GO1.trunk  # Go1 trunk body id (Playground's TORSO_BODY_ID)
@@ -29,11 +30,15 @@ def sample_base_dr(rng, model, spec=GO1):
     k = jax.random.split(rng, 5)
     n = model.nv - 6
     lo, hi = spec.robot.dr_frictionloss
+    # The terrain bodies (after the robot's) are not randomized; drawing only the robot's bodies
+    # keeps the random stream identical to the model without them.
+    nb = model.nbody - len(spec.terrain_geoms)
+    mass_scale = jax.random.uniform(k[3], (nb,), minval=0.9, maxval=1.1)
     return {
         "frictionloss": jax.random.uniform(k[0], (n,), minval=lo, maxval=hi),
         "armature": jax.random.uniform(k[1], (n,), minval=1.0, maxval=1.05),
         "com": jax.random.uniform(k[2], (3,), minval=-0.05, maxval=0.05),
-        "mass_scale": jax.random.uniform(k[3], (model.nbody,), minval=0.9, maxval=1.1),
+        "mass_scale": jp.concatenate([mass_scale, jp.ones(model.nbody - nb)]),
         "trunk_mass": jax.random.uniform(k[4], (), minval=-1.0, maxval=1.0),
     }
 
@@ -169,6 +174,13 @@ def _slope_down_local(theta, spec=GO1):
 
 
 # --- Time- and position-varying effects -------------------------------------------------------
+
+def terrain_mocap(theta, origin, spec=GO1):
+    """data.mocap_pos and data.mocap_quat placing the step boxes for θ and the start pose `origin`
+    (x, y, yaw); see perturb/terrain.py. Only data changes, never the model."""
+    return terrain.mocap_poses(theta, origin[:2], origin[2], C.layout(spec.robot),
+                               len(spec.terrain_geoms), jp)
+
 
 def with_ice(theta, distance, spec=GO1):
     """θ with the ice patch applied if the robot is `distance` m along its initial heading."""
