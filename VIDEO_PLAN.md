@@ -1,104 +1,110 @@
-# Nemesis: demo video plan
+# Nemesis: demo video plan (v4, Oct 27)
 
-Video plus product are about half the score: Demo counts 25%, and judges use the video when scoring the other three criteria. The final round judges watch it live. The X cut also competes for the $20k Most Viral prize, and the live page drives the community vote.
+The demo is 25% of the score, and judges use the video to score the other three criteria (impact, use of Meta AI tooling, technical depth). The X cut competes for Most Viral. The live page at nemesis.divagr.com drives the community vote.
 
-## The idea (v3, Oct 27: product story)
-**Try to break the robot. Then watch it learn.** Nemesis lets anyone put a robot in a situation and watch it learn:
-- type it, say it, or photograph a place;
-- Meta's models turn that into physics;
-- the robot falls;
-- one click retrains it until it doesn't.
+## The story
+**Every robot needs a nemesis.** Describe any situation in plain language: type it, say it, or show a photo of a real place. Meta's models turn it into physics, and the simulated robot faces it. If it falls, it practises until it doesn't, and you watch every attempt.
 
-An autonomous agent does the same thing on its own, and writes up what it found.
+Order of importance:
+1. **The loop:** describe → fall → learn. It opens the video and gets the most time.
+2. **Ways in:** voice, a photo of a real place, a whole route in one sentence.
+3. **Playing and autonomy:** You vs Muse, Autopilot, the Readiness report.
+4. **Reach:** a humanoid; the whole loop on open weights.
 
-This is a tech hackathon, so the benchmark gets one credibility line, not a section. Every clip is real system output, recorded on an L40S so Patch takes about a minute on camera.
+**Tone:** calm, hook first, no drama. This is a tech hackathon, so the study gets one credibility line on the end card and nothing more. Red-teaming isn't the frame: Autopilot and Readiness appear as features, not as the pitch.
 
-**Five "wow" moments:**
-1. **It learns on camera.** A spoken attack ("a hard shove from the left while it walks") → the robot falls in the 3D replay → **Train it to survive this** → progress bar → regression gate ✓✓✓ → the same attack, same seed, and it catches itself.
-2. **Your world.** A phone photo of a real place: a wet monsoon street, polished stairs landing or a ramp. Spark reads it ("packed ice and slush, μ≈0.2"), and the simulated robot is tested there.
-3. **The investigator.** Agent mode: Wonder narrates hypotheses, tests them, rejects the ones that fail ("held, hypothesis refuted"), has Spark watch the falls, measures the margin ("falls begin at 108 N") and retrains the robot. All of it is live trace.
-4. **The verdict.** The Readiness report: "DO NOT DEPLOY on surfaces below μ 0.29 while turning faster than 1 rad/s."
-5. **Any robot, any model.** The same pipeline on a humanoid, and the whole loop offline on Muse Glimmer on one GPU.
+**Never claim:**
+- that training on these situations beats domain randomization (the study says it matches hand-tuned DR, without the tuning);
+- that Muse finds failures better than random programs (its value is the language interface and the explanations);
+- anything the video doesn't show happening.
 
-## Script (target 2:55; about 400 words of VO)
+Every clip is real system output. Every Spark/Wonder quote on screen is verbatim from that take.
 
-| Time | Beat | Picture | VO / on-screen text |
-|---|---|---|---|
-| 0:00–0:06 | **Cold open** | Rapid 3D-replay falls (Go1 and the humanoid), each captioned with the attack that caused it in the attacker's own words ("wet tiles and a backpack", "a shove mid-turn"). | Text: *Every one of these was caused by a sentence.* |
-| 0:06–0:10 | **Title** | **NEMESIS**: try to break the robot. Then watch it learn. | |
-| 0:10–0:22 | **Problem** | A robot walking perfectly in sim. | "Robots trained in simulation fall over in the real world in ways nobody predicted. Before a robot ships, someone should try hard to break it." |
-| 0:22–0:55 | **Wow 1: break it, fix it** | Screen recording: mic → Voice Transcribe caption → Wonder's compiled physics → 3D replay, v1 falls (crimson ring) → **Train it to survive this** → gate checklist → same attack: falls → holds. | "Say an attack. Muse Wonder turns it into physics, and the robot falls. One click and Nemesis retrains it on that attack and dozens of variations, checks it didn't get worse anywhere else, and replays it. Now it holds." |
-| 0:55–1:15 | **Wow 2: your world** | Phone photo of a real place, then Spark's reading types out, then the robot on that surface. | "Or show it a place. Muse Spark reads the surface and slope from a photo, and the robot is tested right there." |
-| 1:15–1:55 | **Wow 3: the investigator** | Agent trace streaming next to the replay: hypothesis → CMA-ES search → refuted / broke it → Spark: "front legs buckle, torso pitches forward" → margin bars → patch → v3. | "Or let Nemesis attack on its own. Wonder forms hypotheses, tests them, throws out the wrong ones, has Spark watch every fall, measures exactly how much margin is left, and retrains the robot." |
-| 1:55–2:10 | **Wow 4: the verdict** | Readiness report scrolls: headline, margins, "DO NOT DEPLOY below…". | "Then it writes the report a safety engineer would: what breaks it, why, and where it's safe to deploy." |
-| 2:10–2:25 | **It learns from everyone** | Lineage v1→vN, leaderboard, Hall of Fame cards flipping from "fell" to "held". | "Every attack anyone finds becomes the next robot's lesson, and every version is regression-tested on a locked 52-scenario gauntlet." [number from the lineage] |
-| 2:25–2:42 | **Wow 5: any robot, any model** | Humanoid shoved and falling, then retrained. Terminal: `NEMESIS_OPEN=1`, Glimmer running, no API key. | "It works on a humanoid too. And the whole loop runs offline on Muse Glimmer, Meta's open-weight model, on a single GPU." |
-| 2:42–2:55 | **Close + CTA** | The robot crossing ice, catching itself. URL. | "Robots shouldn't discover their weaknesses in the real world. Try to break ours." |
-| End card | | Built during the hackathon · MuJoCo Playground (DeepMind), Brax, evosax, three.js · Muse Wonder, Muse Spark, Muse Voice Transcribe, Muse Glimmer · repo · nemesis.divagr.com · @divagr1925 | One line: *validated in a pre-registered study (repo).* |
+## Script (target 2:55; ~340 words of VO)
+Status: **built** = works on the live site today; **needs** = what has to land before filming.
 
-**What the video must never claim:** that adversarial training beats domain randomization. The study says it doesn't at our budget. Product claims (it fixes this attack, it passes the gate, it found this failure) are all shown live.
+| Time | Beat | Picture | VO / on-screen text | Status |
+|---|---|---|---|---|
+| 0:00–0:07 | **Cold open: the whole idea in 7 s** | A sentence types itself: *"three wet steps and a heavy backpack"*. The robot walks into it and trips (ember ring). Hard cut to the attempt chips filling in (before ● 1M ● 2M ● 3M ●) and the same robot climbing the steps. | No VO. Caption chips only, so it reads on mute: *it fell* → *it practised* → *it holds*. | needs: a stairs scenario that patches within 8M (pick it in the dry run) |
+| 0:07–0:12 | **Title** | **Every robot needs a nemesis.** | — | built (hero) |
+| 0:12–0:24 | **Why** | One robot walking cleanly, then quick cuts of everyday situations as text over it: a wet step, a backpack, a shove in a hallway, a weak knee. | "Robots learn to walk in simulation. Then the world hands them a wet step, a backpack, a shove in a crowded hallway: situations nobody wrote down. Nemesis lets you write them down, in plain English." | built |
+| 0:24–1:05 | **The loop** (the centre of the video) | Screen recording of the hero. Mic → *Muse Voice Transcribe* caption → the step list ("Muse Wonder is turning your words into physics…") → 3D replay, the robot falls → **Train it to survive this** → attempts stream in live (falls 14/16 → 9/16 → 1/16) → gate ✓ Fixed ✓ Still walks ✓ Nothing else broke → the same situation, the new version holds → *Muse Spark* line appears → the safety map's red region shrinks. | "Say a situation. Muse Wonder turns your words into physics: the friction, the load, the push, the exact steps. The robot walks into it, and falls. So it practises. Every million steps it tries again, and you can watch each attempt. When it holds, Nemesis checks it didn't get worse anywhere else before the new version goes live. Muse Spark watches the before and after and says what changed. And the safety map shows how much more it can take now." | built. needs: L40S for real-time Patch (else mark the training stretch "sped up" on screen); a Spark line that cites a number |
+| 1:05–1:25 | **A real place** | A phone photo of a real porch or wet stairs. *SAM 3.1* outlines snap on (each step numbered, the wet patch shaded). *Muse Spark's* reading types out ("3 steps, polished stone, μ≈0.2"). Cut to the robot on that course. | "Or show it a real place. SAM finds the steps and the wet patch, Muse Spark reads the surface, and the robot is tested right there." | needs: SAM 3.1 in the photo flow; 3–4 real photos |
+| 1:25–1:40 | **A whole route** | Typed: *"out the front door, down three small steps, across an icy driveway, up a ramp"*. The course builds in the replay; the robot makes it to the ice and slips; a chip marks where. | "Describe a whole route, and it builds the course: steps, ice, a ramp, in that order." | physics built (b478396). needs: course legend/marker UI, live-site check |
+| 1:40–2:00 | **You vs Muse** | Arena: a person types a situation, Muse "practises" its candidates (step list), the reveal, both replays side by side, score. | "Or play against Muse. You each describe situations; Muse practises its ideas in the simulator before it commits. Whoever knocks the robot over more often wins, and every fall becomes a lesson." | built |
+| 2:00–2:25 | **Autopilot → Readiness** | Autopilot chat: Wonder's hypotheses, tool calls, "held: hypothesis refuted", *Spark* watching a fall, margin bars. Then the Readiness report scrolls to its headline. | "Autopilot does it on its own. Muse Wonder forms hypotheses, tests them, drops the wrong ones, has Spark watch each fall, and measures exactly where falls begin. Then it writes a readiness report: what knocks this robot over, and where it's safe to send it." | built |
+| 2:25–2:40 | **Any robot, any model** | The humanoid facing the same sentence as the quadruped, side by side. Terminal: `NEMESIS_OPEN=1`, Glimmer serving, no API key, the same loop running. | "It works on a humanoid too. And the whole loop runs on Muse Glimmer, Meta's open-weight model, on a single GPU." | needs: humanoid on the site (HUMANOID_READY). Open-weight mode built |
+| 2:40–2:55 | **Close** | The lineage v1 → vN with each version's changelog ("learned: …", "still can't: …"), then the hero with the URL. | "Every version keeps a changelog: what it learned, and what still knocks it over. Try your own at nemesis.divagr.com. Every robot needs a nemesis." | built |
+| End card | | Built during the hackathon · Muse Wonder · Muse Spark · Muse Voice Transcribe · SAM 3.1 · Muse Glimmer · MuJoCo Playground (Google DeepMind) · Brax · three.js · repo · nemesis.divagr.com | One line: *In a pre-registered study (repo), training on situations written in language matched hand-tuned domain randomization, with no tuning.* | built |
 
-## Art direction
-- **Palette:** robot and "defense" in cyan (#22D3EE); Nemesis, attacks and failures in crimson (#E11D48); neutral studio gray for everything else. A dark UI.
-- **Type:** Inter for titles. JetBrains Mono for anything an agent wrote, with a typewriter reveal and a short cursor blink.
-- **Sim look:** a clean studio scene, soft key light plus rim light, shadows on, 4× MSAA, 1080p at 60 fps. Slow-mo comes from rendering every physics step, not from frame interpolation.
-- **Make every perturbation visible** (otherwise the attacks are invisible and the video falls flat):
-  - Low friction → a glossy blue "ice" patch on the floor
-  - Payload → a visible box strapped to the back, sized by mass
-  - Push → a red arrow with a force label
-  - Weak motor → that leg tinted red, with intensity proportional to the weakness
-  - Latency → a faint ghost of the commanded pose
-  - Sensor noise → a jittering HUD readout
-  - Terrain → real geometry
-- **Cameras:** a tracking cam by default, a low-angle hero cam for falls and recoveries, an orbit for the close.
-- **Sound:** one licensed track that builds (YouTube Audio Library or Pixabay, keep the license file). Thuds on falls, soft typewriter clicks for Nemesis text, a riser into each round card. Master at −14 LUFS.
+**On screen, every Meta model is labelled at the moment it acts** (a small chip: *Muse Wonder*, *Muse Spark*, *Voice Transcribe*, *SAM 3.1*, *Glimmer*).
+
+## X cut (45 s, 1:1, burned-in captions)
+| Time | Picture |
+|---|---|
+| 0–3 s | The sentence → the fall. Caption: *I described this. It fell.* |
+| 3–15 s | Attempt chips filling in, then it holds. Caption: *Then it practised until it didn't.* |
+| 15–25 s | Photo → SAM outlines → the robot on that porch. |
+| 25–35 s | You vs Muse: the reveal and the score. |
+| 35–45 s | The hero and the URL. Caption: *Describe your own: nemesis.divagr.com* |
+
+Posted with one calm hook line plus the live link; the post link goes in the submission form.
+
+## Shot list
+| Shot | Where | Notes |
+|---|---|---|
+| Hero loop: voice → fall → Patch → holds | L40S dev server (real-time Patch), same build as the site | 3+ takes; pick a situation that stops early in ≤ 4M steps |
+| Attempt chips + gate + Spark line | same take | Keep the Spark sentence verbatim; it must cite a number |
+| Safety map before/after | same take | — |
+| Real-place photos | your phone | Porch steps, wet tiles, a ramp; well lit, no people |
+| Route sentence | public site | After the course UI lands |
+| You vs Muse | public site | A full 3-round game; one take where you win, one where Muse wins |
+| Autopilot investigation | public site | One full run recorded uncut, cut down in the edit |
+| Readiness report scroll | public site | Smooth scroll, 1080p |
+| Humanoid side by side | public site | After HUMANOID_READY |
+| Open-weight terminal | an A10G/L4 box running Glimmer | `NEMESIS_OPEN=1`, the same Patch loop |
+| Cold open | re-render of the hero take's trajectories | Low-angle camera, slow-mo on the trip |
+
+## Look
+- **Match the site:** background #0a0a0a, text #ededeb. **Ember (#ff5b35)** for falls and the situation. **Acid (#d7f25d)** for "held" and passed checks. **Peri (#8b93f8)** for Spark's words.
+- **Type:** Inter for titles and captions; IBM Plex Mono for anything a model wrote (typewriter reveal).
+- **Sim:** the site's 3D replay for screen shots. For the cold open and the close, a cinematic render: low hero camera, soft key + rim light, shadows, slow-mo from every physics step (not interpolation).
+- **Every perturbation visible:**
+  - steps and ramps as real geometry;
+  - ice as a glossy patch;
+  - pushes as a red arrow with the force;
+  - load as a box on the back;
+  - a weak motor as a tinted leg.
+- **Sound:** one licensed track that builds quietly (keep the license file); soft thuds on falls; a light tick per attempt chip. Master at −14 LUFS.
 
 ## Toolchain
-- **Sim footage:** `nemesis/sim/render.py` in a new cinematic mode. Everything re-renders deterministically from atlas records (ckpt, θ, seed), so footage never has to be captured live and any shot can be re-rendered better later.
-- **Motion graphics:** **Remotion** (React to video) in `video/`. It reads the JSON exports (reward curves, atlas, LLM logs, results), so charts and text are real data and update automatically when the numbers change.
-- **Screen recording:** OBS at 1080p60 for the web page.
-- **Edit and audio:** DaVinci Resolve (free). Voiceover is your own voice on a decent mic in a quiet room. Burned-in captions on the X cut.
+- **Screen:** OBS, 1080p60, browser at 1920×1080, cursor highlighted.
+- **Sim renders:** `nemesis/sim/render.py` re-renders any take from its saved trajectory.
+- **Titles and captions:** Remotion (`video/`) if time allows, otherwise Resolve's text tools.
+- **Edit and audio:** DaVinci Resolve. VO in your own voice, quiet room, decent mic.
 
 ## Deliverables
-1. **Judge cut:** 16:9, 1080p60, ≤ 2:59, uploaded as unlisted YouTube with a public link that's been tested.
-2. **X cut (45 s):**
-   - 0–3 s: failure montage
-   - 3–6 s: survival grid
-   - 6–20 s: Nemesis thoughts plus the hunt grid
-   - 20–32 s: before/after
-   - 32–38 s: chart
-   - 38–45 s: the "break my robot" CTA
-   - Big captions, readable on mute. Posted with a hook line plus the live link, and the post link goes into the submission form.
-3. **README GIFs:** the hunt grid, before/after, and the attack page.
-4. **Thumbnail:** a robot mid-fall in red next to the same robot standing in cyan, captioned "AI vs robot".
+1. **Judge cut:** 16:9, 1080p60, ≤ 2:59, unlisted YouTube, link tested logged-out.
+2. **X cut:** 45 s, 1:1, captions burned in.
+3. **README GIFs:** the loop (fall → attempts → holds), photo + SAM, You vs Muse.
+4. **Thumbnail:** the same robot twice on the same steps: falling (ember) and holding (acid).
 
-## Capture-as-you-build (things you can't recreate later)
-| Phase | Capture |
-|---|---|
-| P1 | Save a policy checkpoint at **every eval** (for the training timelapse). Keep the reward curve JSON. |
-| P2 | The first hand-written attack that breaks the baseline: θ, seed and ckpt into the atlas. |
-| P3 | **Per-generation CMA-ES populations** (θ for every candidate) for the hunt grid. Every Wonder hypothesis with a timestamp (`runs/llm_log.jsonl`). |
-| P4/P6 | Keep **every round's checkpoint** for every arm (for round cards and before/after). |
-| P5 | Keep at least one reward-hacking candidate and Spark's verbatim verdict. |
-| P7 | Screen-record your own attacks. Ask 3–5 people (friends, Discord) to try breaking it, with consent to show their attacks. |
-| P8 | Export all results JSON for Remotion. |
-
-## Schedule
+## Schedule (IST)
 | When | Task |
 |---|---|
-| Oct 28–29 | Feature polish. Humanoid in the picker. Cinematic camera presets in the 3D replay for capture. |
-| Oct 30 | Film on an L40S: voice → break → patch takes; Your-world photos (shoot real places on your phone); a full agent investigation; report scroll; lineage. Several takes of each. |
-| Oct 31 | Public page live at nemesis.divagr.com (L4). Ask 3–5 people to break it, with consent to show their attacks. |
-| Nov 1–2 | Remotion titles, captions, cold-open montage. Record VO. Rough cut. |
-| Nov 3 | Polish, sound, X cut, thumbnail. |
-| Nov 4 | Lock by 9 AM ET, upload, test links, X post, submit by noon ET. |
+| Now → Nov 3, 3 PM | Build. Capture shots as each feature lands. Dry run of every beat on the live site: Oct 31. |
+| Nov 1–2 | Real-place photos; You vs Muse and Autopilot takes; hero takes on the L40S |
+| Nov 3, 3 PM → Nov 4 | VO, rough cut, cold-open render, titles |
+| Nov 4 | Polish, sound, X cut, thumbnail, README GIFs |
+| **Nov 5, 3 AM** | Upload, test links, X post, repo public, **submit**. The official deadline is Nov 4, 9 PM ET (Nov 5, 7:30 AM IST). |
 
-## Quality bar (check every item before locking)
-- [ ] Hook works with the sound off in the first 3 s
-- [ ] Every Meta model is labelled on screen at the moment it acts
-- [ ] Every claim has a visual; no slide-only sections
-- [ ] No unreadable code; at most 3 highlighted lines at a time
-- [ ] Every number traces back to `analyze.py` output
+## Quality bar (check before locking)
+- [ ] The first 7 s tell the whole idea with the sound off
+- [ ] Every Meta model is labelled on screen when it acts
+- [ ] Every claim is shown happening; no slide-only sections
+- [ ] Every Spark/Wonder line on screen is verbatim from the take
+- [ ] Any sped-up footage is labelled as sped up
+- [ ] No claim that this beats domain randomization or that Muse out-searches random
 - [ ] Clear "built during the hackathon" end card; third-party pieces credited
-- [ ] ≤ 2:59, 1080p60, audio at −14 LUFS, captions checked
-- [ ] Live URL stays up through the community vote (Nov 16)
+- [ ] ≤ 2:59, 1080p60, −14 LUFS, captions checked
+- [ ] nemesis.divagr.com stays up through the community vote (Nov 16)
