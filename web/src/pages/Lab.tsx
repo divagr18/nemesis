@@ -65,7 +65,7 @@ export default function Lab() {
   };
 
   const showing = attempts.length ? attempts[attempt] : null;
-  const stage = showing ? [showing] : after?.trajs || result?.trajs || showcase?.trajs || recent[0]?.trajs;
+  const stage = showing ? [showing] : after?.trajs || result?.trajs || showcase?.trajs;
   const labels = showing ? [`attempt · ${showing.label}`] : after ? [`${after.parent}`, `${after.version}`] : result ? ["original", result.version]
     : showcase ? ["original", `trained · ${showcase.version}`] : null;
 
@@ -183,7 +183,7 @@ export default function Lab() {
                     {v.parent ? `learned ${v.attacks.length} situation${v.attacks.length === 1 ? "" : "s"}` : "original policy"}
                   </span>
                   {v.changelog && (
-                    <p className="mt-1 max-w-md text-[13px] leading-relaxed text-mute">
+                    <p className="mt-1 line-clamp-3 max-w-md text-[13px] leading-relaxed text-mute">
                       {v.changelog.learned} <span className="text-faint">{v.changelog.still_cant}</span>
                     </p>
                   )}
