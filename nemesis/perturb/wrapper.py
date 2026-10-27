@@ -127,7 +127,10 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         """Real fall: a non-foot body touches the ground, the trunk tilts too far, the root is too
         low, or the simulation diverged (non-finite state)."""
         c = data.contact
-        body = jp.isin(c.geom[:, 0], self._body_geoms) | jp.isin(c.geom[:, 1], self._body_geoms)
+        g0, g1, floor = c.geom[:, 0], c.geom[:, 1], self.spec.floor
+        # Only body-floor contacts: G1 also has explicit hand-thigh contact pairs.
+        body = (((g0 == floor) & jp.isin(g1, self._body_geoms))
+                | ((g1 == floor) & jp.isin(g0, self._body_geoms)))
         touching = jp.any(body & (c.dist < 0.0)) if self._body_geoms.size else False
         up_z = data.xmat[self.spec.trunk][2, 2]
         diverged = ~(jp.isfinite(data.qpos).all() & jp.isfinite(data.qvel).all())
