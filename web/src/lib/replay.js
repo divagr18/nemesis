@@ -45,9 +45,9 @@ const CSS = `
 .nr-flash{position:absolute;inset:0;pointer-events:none;opacity:0;
   background:radial-gradient(ellipse at center,rgba(255,91,53,0) 35%,rgba(255,91,53,.55) 100%)}
 .nr-msg{position:absolute;inset:0;display:grid;place-items:center;color:#8b93a7;font:13px "IBM Plex Mono",monospace;padding:16px;text-align:center}
-.nr-hud{position:absolute;left:10px;top:10px;right:10px;display:flex;flex-wrap:wrap;gap:6px;pointer-events:none}
-.nr-chip{font:500 11px/1 "IBM Plex Mono",ui-monospace,monospace;padding:5px 8px;border-radius:6px;
-  background:rgba(10,10,10,.55);border:1px solid rgba(255,255,255,.08);color:#b9b7b2;white-space:nowrap;
+.nr-hud{position:absolute;left:14px;top:14px;right:14px;display:flex;flex-wrap:wrap;gap:8px;pointer-events:none}
+.nr-chip{font:500 13px/1 "IBM Plex Mono",ui-monospace,monospace;padding:7px 10px;border-radius:8px;
+  background:rgba(10,10,10,.55);border:1px solid rgba(255,255,255,.08);color:#e4e2de;white-space:nowrap;
   backdrop-filter:blur(6px);transition:color .2s,border-color .2s}
 .nr-chip.on{color:#fff;border-color:rgba(255,91,53,.8);background:rgba(255,91,53,.18)}
 .nr-label{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(18,21,28,.82);
@@ -73,9 +73,9 @@ const CSS = `
 .nr-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:8px;border-radius:50%;background:#e7e9ee;
   border:0;box-shadow:0 0 0 4px rgba(231,233,238,.15)}
 .nr-range::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#e7e9ee;border:0;box-shadow:0 0 0 4px rgba(231,233,238,.15)}
-.nr-time{font:12px "IBM Plex Mono",ui-monospace,monospace;color:#8b93a7;min-width:92px;text-align:right;flex:none}
+.nr-time{font:13px "IBM Plex Mono",ui-monospace,monospace;color:#c8c6c1;min-width:92px;text-align:right;flex:none}
 .nr-speed{display:flex;gap:2px;background:#0b0d12;border:1px solid #222733;border-radius:8px;padding:2px;flex:none}
-.nr-speed button{border:0;background:transparent;color:#8b93a7;font:600 12px "IBM Plex Mono",monospace;padding:5px 8px;border-radius:6px;cursor:pointer}
+.nr-speed button{border:0;background:transparent;color:#a9a7a2;font:500 13px "IBM Plex Mono",monospace;padding:5px 8px;border-radius:6px;cursor:pointer}
 .nr-speed button.on{background:#222733;color:#e7e9ee}
 @container (max-width:480px){.nr-track{flex-basis:100%;order:-1}.nr-time{min-width:0;margin-right:auto;text-align:left}}
 `;

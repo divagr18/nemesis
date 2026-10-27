@@ -9,10 +9,11 @@ type Props = {
   busy?: boolean;
   examples?: string[];
   accent?: string; // tailwind bg class for the send button
+  prefill?: { text: string; n: number }; // set the text from outside (e.g. a clicked sample)
 };
 
 /** One input for an attack: type it, say it, or (optionally) show a photo of a place. */
-export default function Composer({ onText, onVoice, onFile, busy, examples = [], accent = "bg-ember" }: Props) {
+export default function Composer({ onText, onVoice, onFile, busy, examples = [], accent = "bg-ember", prefill }: Props) {
   const [text, setText] = useState("");
   const [hint, setHint] = useState(0);
   const [rec, setRec] = useState<MediaRecorder | null>(null);
@@ -24,6 +25,8 @@ export default function Composer({ onText, onVoice, onFile, busy, examples = [],
     const t = setInterval(() => setHint((h) => (h + 1) % examples.length), 3200);
     return () => clearInterval(t);
   }, [examples.length]);
+
+  useEffect(() => { if (prefill) { setText(prefill.text); area.current?.focus(); } }, [prefill?.n]);
 
   useEffect(() => {  // grow with the text
     const a = area.current; if (!a) return;
@@ -49,7 +52,7 @@ export default function Composer({ onText, onVoice, onFile, busy, examples = [],
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
         placeholder={rec ? "Listening… tap stop when you're done" : examples[hint] || "Describe an attack"}
-        className="block w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[17px] leading-relaxed text-ink outline-none placeholder:text-faint disabled:opacity-60" />
+        className="block w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[17px] leading-relaxed text-ink outline-none placeholder:text-mute/80 disabled:opacity-60" />
       <div className="flex items-center gap-1 px-3 pb-3">
         {onVoice && (
           <button onClick={mic} disabled={busy} title={rec ? "Stop" : "Say it"}
@@ -68,7 +71,7 @@ export default function Composer({ onText, onVoice, onFile, busy, examples = [],
           </>
         )}
         <button onClick={submit} disabled={busy || text.trim().length < 3}
-          className={`ml-auto grid size-9 place-items-center rounded-full text-black transition-all disabled:opacity-25 ${accent}`}>
+          className={`ml-auto grid size-9 place-items-center rounded-full transition-all ${text.trim().length >= 3 && !busy ? `${accent} text-black` : "bg-white/[.07] text-mute"}`}>
           {busy ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} strokeWidth={2} />}
         </button>
       </div>
