@@ -105,6 +105,8 @@ export default function Arena() {
         </div>
       )}
 
+      {phase === "turn" && <LivePreview version={duel.version} />}
+
       {phase === "running" && (
         <div className="mx-auto mt-20 w-80">
           <Steps steps={steps} />
@@ -118,6 +120,23 @@ export default function Arena() {
 
       {phase === "final" && <Final duel={duel} onRematch={start} />}
     </div>
+  );
+}
+
+/** The robot both players are about to attack, walking normally. */
+function LivePreview({ version }: { version: string }) {
+  const [p, setP] = useState<any>(null);
+  useEffect(() => { api("/api/preview").then((x) => setP(x?.trajs ? x : null)).catch(() => {}); }, [version]);
+  if (!p) return null;
+  return (
+    <figure className="rise mt-6">
+      <div className="relative aspect-[21/8] overflow-hidden rounded-2xl border border-line bg-[#0b0d12]">
+        <Replay trajs={p.trajs} hud={false} className="absolute inset-0" />
+      </div>
+      <figcaption className="mt-2.5 text-[13px] text-faint">
+        <span className="text-mute">{p.version}</span>, the robot you're both attacking, walking normally.
+      </figcaption>
+    </figure>
   );
 }
 

@@ -164,7 +164,7 @@ class Agent:
             self.failures[fid] = {"id": fid, "hypothesis": hypothesis, "fall_rate": out["fall_rate"],
                                   "conditions": out["conditions"], "clip": rec["clip"]}
             out["failure_id"] = fid
-            await self.job.emit("failure", id=fid, clip=rec["clip"], hypothesis=hypothesis,
+            await self.job.emit("failure", id=fid, clip=rec["clip"], trajs=rec.get("trajs"), hypothesis=hypothesis,
                                 fall_rate=out["fall_rate"], conditions=out["conditions"])
         return out
 

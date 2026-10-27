@@ -9,4 +9,4 @@ export NEMESIS_PATCH_MEM_FRACTION="${NEMESIS_PATCH_MEM_FRACTION:-0.6}"
 export NEMESIS_POLICY="${NEMESIS_POLICY:-runs/baseline_v2}"
 export NEMESIS_REFERENCE="${NEMESIS_REFERENCE:-runs/arms_final/dr_s1/round_2}"
 export NEMESIS_SERVE_DIR="${NEMESIS_SERVE_DIR:-runs/serve}"
-exec uvicorn server.app:app --host 0.0.0.0 --port "${1:-8000}" --timeout-keep-alive 75
+exec uvicorn server.app:app --host 0.0.0.0 --port "${1:-8000}" --timeout-keep-alive 75 --timeout-graceful-shutdown 5

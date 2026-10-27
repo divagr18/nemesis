@@ -51,7 +51,7 @@ export default function Report() {
   if (!rep) {
     return (
       <div className="mx-auto max-w-3xl pt-16">
-        <h1 className="text-[40px] font-medium tracking-[-0.03em] sm:text-[56px]">Robot report <span className="text-faint">{version}</span></h1>
+        <h1 className="text-[40px] font-medium tracking-[-0.03em] sm:text-[56px]">Readiness report <span className="text-faint">{version}</span></h1>
         {!missing && (loadError
           ? <p className="mt-8 text-mute">Can't reach the robot right now. <span className="text-faint">{loadError}</span></p>
           : <p className="mt-8 text-sm text-faint"><span className="blink text-ember">●</span> Loading…</p>)}

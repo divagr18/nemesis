@@ -827,14 +827,46 @@ async def showcase():
     return {}
 
 
+_preview: dict = {}
+
+
+@app.get("/api/preview")
+async def preview():
+    """The live robot walking normally (forward at 1 m/s, no attack): what you're about to attack."""
+    live = versions.live()["name"]
+    path = SHOWCASE_DIR / f"{live}_preview.json"
+    if live not in _preview and path.exists():
+        _preview[live] = json.loads(path.read_text())
+    if live in _preview:
+        return _preview[live]
+    from nemesis.sim import export
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments"))
+    from finetune import forward_nominal
+
+    theta = forward_nominal().astype(np.float32)
+    async with _gpu:
+        s = sim()
+        rec = await asyncio.to_thread(s["ev"], s["live"], theta[None], np.array([0]), 3, True)
+    tr = export.trajectory(s["ev"].env.mj_model, rec["qpos"][0, 0], theta, s["ev"].env.dt, label=live, fall_time=None)
+    name = f"preview_{live}.json"
+    CLIPS.mkdir(parents=True, exist_ok=True)
+    (CLIPS / name).write_text(json.dumps(tr))
+    _preview[live] = {"version": live, "trajs": [{"label": live, "url": f"/traj/{name}"}]}
+    SHOWCASE_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_preview[live]))
+    return _preview[live]
+
+
 @app.on_event("startup")
 async def _warm_showcase():
     """Compile the simulator and prepare the hero replay before the first visitor arrives."""
     async def go():
-        try:
-            await showcase()
-        except Exception:  # noqa: BLE001  (warm-up is best effort)
-            pass
+        for warm in (showcase, preview):
+            try:
+                await warm()
+            except Exception:  # noqa: BLE001  (warm-up is best effort)
+                pass
     asyncio.create_task(go())
 
 

@@ -143,7 +143,7 @@ export default function Lab() {
         <section className="mt-28">
           <div className="flex items-end justify-between">
             <h2 className="text-2xl font-medium tracking-tight">Recent breaks</h2>
-            {versions && <Link to="/report" className="flex items-center gap-1.5 text-sm text-mute hover:text-ink">Robot report <ArrowRight size={14} /></Link>}
+            {versions && <Link to="/readiness" className="flex items-center gap-1.5 text-sm text-mute hover:text-ink">Readiness report <ArrowRight size={14} /></Link>}
           </div>
           <div className="mt-6 grid gap-x-5 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
             {recent.map((r) => <BreakCard key={r.id} r={r} />)}

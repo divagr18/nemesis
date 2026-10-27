@@ -48,10 +48,11 @@ export default function Agent() {
     return (
       <div className="mx-auto flex min-h-[calc(100dvh-10rem)] max-w-2xl flex-col justify-center pb-16">
         <h1 className="text-center text-[40px] font-medium leading-[1.05] tracking-[-0.035em] sm:text-[52px]">
-          What should Muse test?
+          Autopilot
         </h1>
         <p className="mx-auto mt-4 max-w-md text-center text-base leading-[1.55] text-ink/70">
-          Muse forms hypotheses, simulates them on the live robot, watches every fall, and retrains it.
+          Tell it what to look into. Muse forms hypotheses, simulates them on the live robot, watches every fall,
+          and retrains it, on its own.
         </p>
         <div className="mt-10"><ChatInput onSend={start} /></div>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
