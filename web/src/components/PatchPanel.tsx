@@ -12,6 +12,7 @@ export default function PatchPanel({ job, onDone, onTimelapse }: { job: string; 
   const [error, setError] = useState("");
   const [versions, setVersions] = useState<[string, string] | null>(null);
   const [learned, setLearned] = useState("");
+  const [tries, setTries] = useState<any[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -19,6 +20,7 @@ export default function PatchPanel({ job, onDone, onTimelapse }: { job: string; 
       if (!alive) return;
       if (e.stage === "started") setVersions([e.parent, e.version]);
       if (e.stage === "timelapse") onTimelapse?.(e.attempts);
+      if (e.stage === "attempt") setTries((xs) => (xs.some((x) => x.n === e.n) ? xs : [...xs, e]));
       if (e.stage in STAGES) setStage(e.stage);
       if (e.stage === "progress") { setStage("training"); setProg(Math.min(1, e.step / e.total)); }
       if (e.stage === "trained") setProg(1);
@@ -47,6 +49,17 @@ export default function PatchPanel({ job, onDone, onTimelapse }: { job: string; 
       <div className="mt-4 h-px overflow-hidden bg-line">
         <div className="h-full bg-ember transition-[width] duration-700 ease-out-soft" style={{ width: `${(done ? 1 : stage === "bank" ? 0.04 : stage === "gating" ? 1 : prog) * 100}%` }} />
       </div>
+      {tries.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-faint">
+          {tries.map((t) => (
+            <span key={t.n} title={t.n === 0 ? "the robot before practice" : `after ${t.label} simulated steps of practice`}
+              className="flex items-center gap-1.5">
+              <i className={`block size-1.5 rounded-full ${t.falls > 0.125 || !t.walks ? "bg-ember" : "bg-acid"}`} />
+              {t.label} <span className="text-mute">{Math.round(t.falls * 16)}/16 falls</span>
+            </span>
+          ))}
+        </div>
+      )}
       {checks && (
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           {checks.map(([name, ok, detail]) => (

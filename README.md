@@ -1,7 +1,6 @@
 # Nemesis
 
 **Every robot needs a nemesis.**
-Describe any situation. Watch it fall, then adapt.
 
 Nemesis is a red team for walking robots that anyone can use. Describe an attack in plain English, say it out loud, or photograph a real place. Meta's Muse models turn it into physics, and a Unitree Go1 runs it in MuJoCo. If the robot falls, one click retrains it until it doesn't, and every fix is regression-tested before it goes live. An autonomous agent does the same on its own and writes up what it found.
 
