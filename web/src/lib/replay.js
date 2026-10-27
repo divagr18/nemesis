@@ -428,44 +428,83 @@ export async function mountReplay(container, opts = {}) {
   const ghost = layout === 'ghost' && n > 1;
   const offsets = trajs.map((_, i) => (ghost ? 0 : ((n - 1) / 2 - i) * spacing));
 
-  // Ice: θ's patch is a band across the whole floor along the start heading (apply.with_ice
-  // only tests distance), so draw one slab under all robots.
   // Terrain: stairs/curbs as solid steps along the start heading (start-heading frame, like ice).
-  if (ov0.terrain && (ov0.terrain.steps || []).length) {
+  // A course adds ramps: the slope (a wedge from the floor) and its landing (a flat block).
+  const steps = (ov0.terrain && ov0.terrain.steps) || [], ramps = (ov0.terrain && ov0.terrain.ramps) || [];
+  if (steps.length || ramps.length) {
     const width = Math.max(ov0.terrain.width || 3, 1.8 + (ghost ? 0 : spacing * (n - 1)));
     const stepMat = track(new THREE.MeshStandardMaterial({ color: 0x2a2b2f, roughness: 0.85, metalness: 0, envMapIntensity: 0.3 }));
     const edgeMat = track(new THREE.LineBasicMaterial({ color: COL.crimson, transparent: true, opacity: 0.55 }));
-    for (const st of ov0.terrain.steps) {
+    const edge = (x, z) => new THREE.Line(track(new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(x, -width / 2, z + 0.001), new THREE.Vector3(x, width / 2, z + 0.001)])), edgeMat);
+    steps.forEach((st, i) => {
       const len = st.x1 - st.x0, h = st.height;
-      if (len <= 0 || h <= 0) continue;
+      if (len <= 0 || h <= 0) return;
       const box = new THREE.Mesh(track(new THREE.BoxGeometry(len, width, h)), stepMat);
       box.position.set(st.x0 + len / 2, 0, h / 2);
       box.castShadow = true; box.receiveShadow = true;
-      // only the nosing (front top edge) is highlighted, so a flight reads as steps, not blocks
-      const nose = new THREE.Line(track(new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-len / 2, -width / 2, h / 2 + 0.001), new THREE.Vector3(-len / 2, width / 2, h / 2 + 0.001)])), edgeMat);
-      box.add(nose);
+      // only the nosings are highlighted, so a flight reads as steps, not blocks: the front top
+      // edge going up; coming back down, the back top edge of each step above a riser down
+      const prev = steps[i - 1], next = steps[i + 1];
+      const down = prev && prev.height > h, nextDown = next ? next.height < h : down;
+      if (!down) box.add(edge(-len / 2, h / 2));
+      if (nextDown) box.add(edge(len / 2, h / 2));
       world.add(box);
+    });
+    for (const r of ramps) {
+      const len = r.x1 - r.x0;
+      if (len <= 0 || Math.max(r.h0, r.h1) <= 0) continue;
+      const flat = Math.abs(r.h1 - r.h0) < 1e-4;
+      let solid;
+      if (flat) {  // a landing
+        solid = new THREE.Mesh(track(new THREE.BoxGeometry(len, width - 0.002, r.h1)), stepMat);
+        solid.position.set(r.x0 + len / 2, 0, r.h1 / 2);
+      } else {  // the slope: its side profile extruded across the width (1 mm in, so the sides
+        // don't z-fight with a step the ramp rises out of)
+        const pts = [new THREE.Vector2(0, 0), new THREE.Vector2(len, 0)];
+        if (r.h1 > 1e-4) pts.push(new THREE.Vector2(len, r.h1));
+        if (r.h0 > 1e-4) pts.push(new THREE.Vector2(0, r.h0));
+        const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts),
+          { depth: width - 0.002, bevelEnabled: false });
+        geo.rotateX(Math.PI / 2);  // profile up to +z, extruded along -y
+        geo.translate(0, (width - 0.002) / 2, 0);
+        solid = new THREE.Mesh(track(geo), stepMat);
+        solid.position.set(r.x0, 0, 0);
+      }
+      solid.castShadow = true; solid.receiveShadow = true;
+      // the front top edge, like a step's nosing: the foot of the slope, the crest for a landing
+      solid.add(flat ? edge(-len / 2, r.h1 / 2) : edge(0, r.h0));
+      world.add(solid);
     }
   }
 
-  if (ov0.ice) {
-    const ice = ov0.ice, width = 1.8 + (ghost ? 0 : spacing * (n - 1));
-    const slab = new THREE.Mesh(track(new THREE.BoxGeometry(ice.length, width, 0.006)),
-      track(new THREE.MeshStandardMaterial({ color: 0x3b9cff, transparent: true, opacity: 0.26, roughness: 0.15, metalness: 0, envMapIntensity: 0.2,
-        emissive: 0x1d6fd6, emissiveIntensity: 0.45, depthWrite: false })));
-    slab.position.set(ice.start + ice.length / 2, 0, 0.004);
-    slab.renderOrder = 1;
-    const edges = new THREE.LineSegments(track(new THREE.EdgesGeometry(slab.geometry)),
-      track(new THREE.LineBasicMaterial({ color: COL.ice, transparent: true, opacity: 0.7 })));
-    slab.add(edges);
-    world.add(slab);
-    const tagEl = el('div', 'nr-tag');
-    tagEl.textContent = `ICE μ ${ice.mu}`;
-    tagEl.style.marginLeft = '60px';
-    const tag = new CSS2DObject(boxed(tagEl));
-    tag.position.set(ice.start + 0.05, width / 2 - 0.15, 0.02);
-    world.add(tag);
+  // Ice: each patch is a band across the whole floor along the start heading (apply.with_ice
+  // only tests distance), so draw one slab under all robots. ice_patches lists every patch; older
+  // exports only have the first, as `ice`. A course patch that lies on one step or landing is
+  // drawn on its top.
+  const patches = ov0.ice_patches || (ov0.ice ? [ov0.ice] : []);
+  if (patches.length) {
+    const width = 1.8 + (ghost ? 0 : spacing * (n - 1));
+    const iceMat = track(new THREE.MeshStandardMaterial({ color: 0x3b9cff, transparent: true, opacity: 0.26, roughness: 0.15, metalness: 0, envMapIntensity: 0.2,
+      emissive: 0x1d6fd6, emissiveIntensity: 0.45, depthWrite: false }));
+    const iceEdgeMat = track(new THREE.LineBasicMaterial({ color: COL.ice, transparent: true, opacity: 0.7 }));
+    const flats = [...steps.map((s) => [s.x0, s.x1, s.height]), ...ramps.filter((r) => Math.abs(r.h1 - r.h0) < 1e-4).map((r) => [r.x0, r.x1, r.h1])];
+    for (const ice of patches) {
+      const on = ov0.ice_patches ? flats.find(([a, b]) => ice.start >= a - 1e-3 && ice.start + ice.length <= b + 1e-3) : null;
+      const z = on ? on[2] : 0;
+      const slab = new THREE.Mesh(track(new THREE.BoxGeometry(ice.length, width, 0.006)), iceMat);
+      slab.position.set(ice.start + ice.length / 2, 0, z + 0.004);
+      slab.renderOrder = 1;
+      const edges = new THREE.LineSegments(track(new THREE.EdgesGeometry(slab.geometry)), iceEdgeMat);
+      slab.add(edges);
+      world.add(slab);
+      const tagEl = el('div', 'nr-tag');
+      tagEl.textContent = `ICE μ ${ice.mu}`;
+      tagEl.style.marginLeft = '60px';
+      const tag = new CSS2DObject(boxed(tagEl));
+      tag.position.set(ice.start + 0.05, width / 2 - 0.15, z + 0.02);
+      world.add(tag);
+    }
   }
 
   const meshGeos = assets.meshes.map((m) => track(meshGeometry(m)));
@@ -480,11 +519,15 @@ export async function mountReplay(container, opts = {}) {
   if (hud) {
     const chips = [];
     const add = (text, key) => { const c = el('span', 'nr-chip'); c.textContent = text; if (key) c.dataset.key = key; hudEl.appendChild(c); chips.push(c); };
-    if (ov0.terrain && (ov0.terrain.steps || []).length) {
-      const st = ov0.terrain.steps, cm = Math.round(st[0].height * 100);
-      add(st.length === 1 ? `${cm} cm curb` : `${st.length} steps × ${cm} cm`);
+    if (steps.length) {
+      const cm = Math.round(steps[0].height * 100), up = steps.findIndex((s, i) => i && s.height < steps[i - 1].height);
+      if (up > 0) add(`${up} steps × ${cm} cm, up and down`);
+      else add(steps.length === 1 ? `${cm} cm curb` : `${steps.length} steps × ${cm} cm`);
     }
-    if (ov0.ice) add(`ice μ ${+(+ov0.ice.mu).toFixed(2)}, ${+(+ov0.ice.length).toFixed(1)} m patch`);
+    for (const r of ramps.filter((r) => r.h1 > r.h0 && r.x1 > r.x0)) {
+      add(`${Math.round(THREE.MathUtils.radToDeg(Math.atan2(r.h1 - r.h0, r.x1 - r.x0)))}° ramp, ${Math.round((r.h1 - r.h0) * 100)} cm up`);
+    }
+    for (const ice of patches) add(`ice μ ${+(+ice.mu).toFixed(2)}, ${+(+ice.length).toFixed(1)} m patch`);
     if ((ov0.slippery_feet || []).length) { const sf = ov0.slippery_feet, mu = +Math.min(...sf.map((f) => f.mu)).toFixed(2); add(sf.length >= 4 || (sf.length === 2 && ctxFeet(sf)) ? `slippery floor μ ${mu}` : `slippery ${sf.map((f) => f.site).join(' ')} μ ${mu}`); }
     if (ov0.payload) add(`${+(+ov0.payload.mass).toFixed(1)} kg load`);
     (ov0.pushes || []).forEach((p, i) => add(`${Math.round(p.magnitude)} N shove at ${(+p.t0).toFixed(1)} s`, `push${i}`));
