@@ -82,6 +82,39 @@ def gate(ev, old_params, new_params, attacks: np.ndarray) -> dict:
     return {"suites": out, "checks": checks, "accepted": all(checks.values())}
 
 
+def timelapse(ev, base_params, run_dir: Path, theta: np.ndarray, clips: Path, tag: str) -> list[dict]:
+    """The attack replayed by every training checkpoint on one seed where the original falls:
+    the robot learning, attempt by attempt. Every attempt is recorded at the same batch shape
+    (16 seeds), because MJX rollouts are not bit-exact across batch sizes; then one seed is kept."""
+    from nemesis.sim import export
+    from nemesis.train.ppo import checkpoints, load_params
+
+    seeds = np.arange(16)
+    ckpts = checkpoints(run_dir)[1:]  # the step-0 checkpoint is the starting policy again
+    runs = [("before", base_params)] + [(f"{round(100 * (i + 1) / len(ckpts))}%", load_params(run_dir, int(c.stem)))
+                                        for i, c in enumerate(ckpts)]
+    recs = [ev(params, theta[None], seeds=seeds, key=777, record=True) for _, params in runs]
+    fell0 = recs[0]["fell"][0]
+    # Prefer a seed where the original falls and the final policy holds: the clearest lesson.
+    held_end = ~recs[-1]["fell"][0]
+    pick = np.flatnonzero(fell0 & held_end)
+    pick = pick if len(pick) else np.flatnonzero(fell0)
+    j = int(pick[0]) if len(pick) else 0
+    clips.mkdir(parents=True, exist_ok=True)
+    out = []
+    for i, ((label, _), rec) in enumerate(zip(runs, recs)):
+        fell = bool(rec["fell"][0, j])
+        q = rec["qpos"][0, j]
+        if fell:  # end ~1 s after the fall, like the server's clips
+            q = q[: int(min(len(q), rec["time_to_fall"][0, j] / ev.env.dt + 50))]
+        tr = export.trajectory(ev.env.mj_model, q, theta, ev.env.dt, label=label,
+                               fall_time=float(rec["time_to_fall"][0, j]) if fell else None)
+        name = f"{tag}_tl{i}.json"
+        (clips / name).write_text(json.dumps(tr))
+        out.append({"label": label, "fell": fell, "url": f"/traj/{name}"})
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True, help="current version dir")
@@ -90,6 +123,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--steps", type=int, default=20_000_000)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--clips", default="", help="where to write timelapse trajectories (served at /traj/)")
+    ap.add_argument("--tag", default="patch", help="file prefix for this patch's timelapse")
     args = ap.parse_args()
 
     event("loading")
@@ -115,13 +150,15 @@ def main():
     eval_env = NemesisWrapper(load_env()[0], nominal_frac=1.0)
     event("training", steps=args.steps)
     t0 = time.time()
-    # Two evals (start, end) on few envs: the gate below is the real check, these are for the log.
-    train(run_dir=out, num_timesteps=args.steps, num_evals=2, seed=args.seed, restore_params=base,
-          env=env, eval_env=eval_env, learning_rate=1e-4, num_eval_envs=128)
+    # Six evals on few envs: each saves a checkpoint for the timelapse; the gate below is the real check.
+    train(run_dir=out, num_timesteps=args.steps, num_evals=6, seed=args.seed, restore_params=base,
+          env=env, eval_env=eval_env, learning_rate=1e-4, num_eval_envs=16)
     event("trained", seconds=round(time.time() - t0, 1))
 
     event("gating")
     ev = Evaluator(NemesisWrapper(load_env()[0], base_dr=False), args.base, horizon=250)
+    if args.clips:
+        event("timelapse", attempts=timelapse(ev, base, out, new[0], Path(args.clips), args.tag))
     result = gate(ev, base, load_params(out), new)
     (out / "gate.json").write_text(json.dumps(result, indent=1))
     event("done", **result)

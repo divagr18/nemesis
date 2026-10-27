@@ -325,7 +325,7 @@ async def run_patch(attacks: list[dict], job: jobs.Job) -> dict:
         np.save(work / "thetas.npy", np.array([a["theta"] for a in attacks], np.float32))
         cmd = [sys.executable, "-m", "server.patch_worker", "--base", parent["dir"], "--thetas",
                str(work / "thetas.npy"), "--bank", str(versions.bank_path), "--out", str(out),
-               "--steps", str(PATCH_STEPS)]
+               "--steps", str(PATCH_STEPS), "--clips", str(CLIPS), "--tag", f"{job.id}_{name}"]
         env = {**os.environ, "XLA_PYTHON_CLIENT_MEM_FRACTION": PATCH_MEM}
         await job.emit("started", version=name, parent=parent["name"], attacks=[a["text"] for a in attacks])
         proc = await asyncio.create_subprocess_exec(*cmd, env=env, stdout=asyncio.subprocess.PIPE,
@@ -362,6 +362,12 @@ async def run_patch(attacks: list[dict], job: jobs.Job) -> dict:
         outcome = {"accepted": True, "gate": gate, "version": name, "parent": parent["name"],
                    "clip": replay["clip"], "trajs": replay["trajs"], "fall_rates": replay["fall_rates"]}
         await job.emit("verified", **outcome)
+        try:
+            sentence = await asyncio.to_thread(explain_learning, replay["clip"], replay["trajs"], attacks[0]["text"])
+            outcome["learned"] = sentence
+            await job.emit("learned", sentence=sentence)
+        except Exception:  # noqa: BLE001  (the explanation is a bonus; the patch already succeeded)
+            pass
         retest = jobs.new("retest")
         jobs.spawn(retest, _retest(retest, name))
         return outcome
@@ -378,7 +384,69 @@ async def _retest(job: jobs.Job, version: str):
         res = await asyncio.to_thread(s["ev"], s["live"], np.array([r["theta"] for r in broke], np.float32),
                                       RETEST_SEEDS, 99)
     versions.record({r["id"]: float(f) for r, f in zip(broke, res["fell"].mean(1))}, version)
+    still = [r["text"] for r, f in zip(broke, res["fell"].mean(1)) if f >= 0.5]
+    try:
+        note = await asyncio.to_thread(changelog, version, still)
+        versions.annotate(version, changelog=note)
+    except Exception:  # noqa: BLE001  (the changelog is decoration; never fail the retest over it)
+        pass
     await job.finish("done", {"retested": len(broke)})
+
+
+CHANGELOG_SCHEMA = {
+    "title": "changelog", "type": "object", "additionalProperties": False,
+    "required": ["learned", "still_cant"],
+    "properties": {
+        "learned": {"type": "string", "description": "one calm sentence: what this version learned to handle"},
+        "still_cant": {"type": "string", "description": "one calm sentence: the main thing that still knocks it over, or 'nothing known yet'"},
+    },
+}
+
+
+def changelog(version: str, still_breaking: list[str]) -> dict:
+    v = next(x for x in versions.all() if x["name"] == version)
+    texts = [r["text"] for r in _attacks() if r["id"] in set(v["attacks"])]
+    gate = v.get("gate") or {}
+    prompt = (f"A walking robot policy was retrained into version {version} (from {v['parent']}) on these situations: "
+              f"{json.dumps(texts)}. Regression gate: {json.dumps(gate.get('suites', {}))}. Situations that still make "
+              f"it fall: {json.dumps(still_breaking[:12])}. Write a two-line changelog for non-experts. Calm, specific, "
+              "no hype, no exclamation marks. Answer as JSON.")
+    return client.respond(prompt, model=config.text_model(), schema=CHANGELOG_SCHEMA, reasoning="low", tag="serve/changelog")
+
+
+LEARNED_SCHEMA = {
+    "title": "what_changed", "type": "object", "additionalProperties": False,
+    "required": ["sentence"],
+    "properties": {"sentence": {"type": "string", "description": "one sentence on how the right robot's gait differs from the left one's, citing at least one of the measured numbers"}},
+}
+
+
+def gait_numbers(traj_url: str) -> dict:
+    """Trunk height, wobble and progress from an exported trajectory (trunk = body 0)."""
+    tr = json.loads((CLIPS / Path(traj_url).name).read_text())
+    from nemesis.sim.export import unpack
+    pos, quat = unpack(tr["pos"])[:, 0], unpack(tr["quat"])[:, 0]
+    w, x, y, z = quat.T
+    roll = np.degrees(np.arctan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y)))
+    pitch = np.degrees(np.arcsin(np.clip(2 * (w * y - z * x), -1, 1)))
+    end = int(tr["fall_time"] / tr["dt"]) if tr.get("fall_time") else len(pos)
+    end = max(end, 2)
+    return {"fell": bool(tr.get("fall_time")), "trunk_height_cm": round(float(pos[:end, 2].mean()) * 100, 1),
+            "roll_wobble_deg": round(float(roll[:end].std()), 1), "pitch_wobble_deg": round(float(pitch[:end].std()), 1),
+            "distance_m": round(float(np.linalg.norm(pos[end - 1, :2] - pos[0, :2])), 2)}
+
+
+def explain_learning(clip_url: str, trajs: list[dict], attack_text: str) -> str:
+    """Muse Spark compares the old (left) and new (right) robot on the same attack, grounded in numbers."""
+    nums = {"left_before": gait_numbers(trajs[0]["url"]), "right_after": gait_numbers(trajs[1]["url"])}
+    out = client.respond(
+        [{"type": "input_text", "text": f"Two simulated quadruped robots face the same situation: {attack_text}. The LEFT "
+          f"robot is the old policy, the RIGHT robot was just retrained on this situation. Measured from the "
+          f"simulation: {json.dumps(nums)}. Watch the clip and say in one calm sentence what the right robot does "
+          f"differently that lets it handle this. Cite at least one measured number. Answer as JSON."},
+         client.video_item(CLIPS / Path(clip_url).name, config.vision_model())],
+        model=config.vision_model(), schema=LEARNED_SCHEMA, reasoning="low", tag="serve/learned")
+    return out["sentence"]
 
 
 @app.post("/api/patch")
@@ -658,7 +726,8 @@ async def job_events(job_id: str, request: Request):
 def get_versions():
     vs = versions.all()
     return {"live": versions.live()["name"],
-            "versions": [{k: v[k] for k in ("name", "parent", "created", "attacks", "gate")} for v in vs],
+            "versions": [{**{k: v[k] for k in ("name", "parent", "created", "attacks", "gate")},
+                          "changelog": v.get("changelog")} for v in vs],
             "bank": int(len(np.load(versions.bank_path))) if versions.bank_path.exists() else 0}
 
 

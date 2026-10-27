@@ -5,23 +5,26 @@ import { follow, pct } from "../lib/api";
 const STAGES = { bank: "Building lessons", training: "Retraining", gating: "Checking for regressions", verified: "Live", rejected: "Kept the old robot" } as const;
 
 /** Live progress of a patch job: one status line, a progress bar, and the regression gate when it lands. */
-export default function PatchPanel({ job, onDone }: { job: string; onDone?: (e: any) => void }) {
+export default function PatchPanel({ job, onDone, onTimelapse }: { job: string; onDone?: (e: any) => void; onTimelapse?: (a: any[]) => void }) {
   const [stage, setStage] = useState<string>("bank");
   const [prog, setProg] = useState(0);
   const [gate, setGate] = useState<any>(null);
   const [error, setError] = useState("");
   const [versions, setVersions] = useState<[string, string] | null>(null);
+  const [learned, setLearned] = useState("");
 
   useEffect(() => {
     let alive = true;
     follow(job, (e) => {
       if (!alive) return;
       if (e.stage === "started") setVersions([e.parent, e.version]);
+      if (e.stage === "timelapse") onTimelapse?.(e.attempts);
       if (e.stage in STAGES) setStage(e.stage);
       if (e.stage === "progress") { setStage("training"); setProg(Math.min(1, e.step / e.total)); }
       if (e.stage === "trained") setProg(1);
       if (e.stage === "verified" || e.stage === "rejected") setGate(e.gate);
       if (e.stage === "failed") setError(e.error || "failed");
+      if (e.stage === "learned") setLearned(e.sentence);
     }).then((e) => alive && onDone?.(e));
     return () => { alive = false; };
   }, [job]);
@@ -54,6 +57,7 @@ export default function PatchPanel({ job, onDone }: { job: string; onDone?: (e: 
           ))}
         </div>
       )}
+      {learned && <p className="rise mt-4 text-[14px] leading-relaxed text-mute"><span className="text-peri">Muse Spark · </span>{learned}</p>}
     </div>
   );
 }

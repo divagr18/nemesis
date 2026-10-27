@@ -43,7 +43,12 @@ class Versions:
         return next(v for v in data["versions"] if v["name"] == data["live"])
 
     def next_dir(self) -> tuple[str, Path]:
-        name = f"v{len(self.all()) + 1}"
+        """Next unused name: one past the highest version, skipping folders that already exist
+        (e.g. a rejected patch's), so a name is never reused."""
+        n = max(int(v["name"][1:]) for v in self.all()) + 1
+        while (self.root / "versions" / f"v{n}").exists():
+            n += 1
+        name = f"v{n}"
         return name, self.root / "versions" / name
 
     def add(self, name: str, run_dir: Path, parent: str, attacks: list[str], gate: dict, fresh: np.ndarray):
@@ -63,6 +68,14 @@ class Versions:
         if run_dir.exists():
             shutil.move(str(run_dir), dest)
         return dest
+
+    def annotate(self, name: str, **fields):
+        """Attach notes to a version (e.g. its changelog)."""
+        data = self._read()
+        for v in data["versions"]:
+            if v["name"] == name:
+                v.update(fields)
+        self._write(data)
 
     # ---- per-attack status across versions ------------------------------------------------------
     def status(self) -> dict:

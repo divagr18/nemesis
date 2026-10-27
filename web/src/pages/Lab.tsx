@@ -34,6 +34,16 @@ export default function Lab() {
   const [recent, setRecent] = useState<Attack[]>([]);
   const [board, setBoard] = useState<any[]>([]);
   const [prefill, setPrefill] = useState({ text: "", n: 0 });
+  const [attempts, setAttempts] = useState<any[]>([]);
+  const [attempt, setAttempt] = useState(0);
+  const [cycling, setCycling] = useState(false);
+
+  useEffect(() => {  // play the learning attempts in order once, then rest on the last
+    if (!cycling || !attempts.length) return;
+    if (attempt >= attempts.length - 1) { setCycling(false); return; }
+    const t = setTimeout(() => setAttempt((i) => i + 1), attempts[attempt].fell ? 3200 : 4200);
+    return () => clearTimeout(t);
+  }, [cycling, attempt, attempts]);
 
   useEffect(() => {
     api("/api/hall_of_fame?limit=9").then(setRecent).catch(() => {});
@@ -41,14 +51,15 @@ export default function Lab() {
   }, [tick]);
 
   const run = async (label: string, req: () => Promise<Attack>) => {
-    setBusy(label); setError(""); setPatchJob(null); setAfter(null);
+    setBusy(label); setError(""); setPatchJob(null); setAfter(null); setAttempts([]);
     try { setResult(await req()); setTick((t) => t + 1); }
     catch (e: any) { setError(e.message); }
     setBusy("");
   };
 
-  const stage = after?.trajs || result?.trajs || recent[0]?.trajs;
-  const labels = after ? [`${after.parent}`, `${after.version}`] : result ? ["original", result.version] : null;
+  const showing = attempts.length ? attempts[attempt] : null;
+  const stage = showing ? [showing] : after?.trajs || result?.trajs || recent[0]?.trajs;
+  const labels = showing ? [`attempt · ${showing.label}`] : after ? [`${after.parent}`, `${after.version}`] : result ? ["original", result.version] : null;
 
   return (
     <div>
@@ -83,7 +94,21 @@ export default function Lab() {
           }} patching={!!patchJob} />}
           {patchJob && (
             <div className="mt-4">
-              <PatchPanel job={patchJob} onDone={(e) => { if (e.accepted) setAfter(e); setTick((t) => t + 1); }} />
+              <PatchPanel job={patchJob}
+                onTimelapse={(a) => { setAttempts(a); setAttempt(0); setCycling(true); }}
+                onDone={(e) => { if (e.accepted) setAfter(e); setTick((t) => t + 1); }} />
+              {attempts.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <span className="mr-1 text-[13px] text-mute">Watch it learn</span>
+                  {attempts.map((a, i) => (
+                    <button key={i} onClick={() => { setCycling(false); setAttempt(i); }}
+                      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-xs transition-colors ${i === attempt ? "border-white/30 bg-white/10 text-ink" : "border-white/10 text-mute hover:text-ink"}`}>
+                      <i className={`block size-1.5 rounded-full ${a.fell ? "bg-ember" : "bg-acid"}`} /> {a.label}
+                    </button>
+                  ))}
+                  {after && <button onClick={() => setAttempts([])} className="ml-1 text-xs text-faint hover:text-mute">final comparison</button>}
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -146,8 +171,13 @@ export default function Lab() {
                   <i className={`absolute top-[17px] -left-[4px] block size-[7px] rounded-full ${v.name === versions.live ? "bg-acid" : "bg-line"}`} />
                   <span className="font-mono text-sm">{v.name}</span>
                   <span className="ml-3 text-sm text-faint">
-                    {v.parent ? `learned ${v.attacks.length} attack${v.attacks.length === 1 ? "" : "s"}` : "original policy"}
+                    {v.parent ? `learned ${v.attacks.length} situation${v.attacks.length === 1 ? "" : "s"}` : "original policy"}
                   </span>
+                  {v.changelog && (
+                    <p className="mt-1 max-w-md text-[13px] leading-relaxed text-mute">
+                      {v.changelog.learned} <span className="text-faint">{v.changelog.still_cant}</span>
+                    </p>
+                  )}
                 </li>
               ))}
             </ol>
