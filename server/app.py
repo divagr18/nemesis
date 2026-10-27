@@ -930,12 +930,14 @@ async def _warm_showcase():
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments"))
         from finetune import forward_nominal
 
-        s = sim()
-        ev, th = s["ev"], forward_nominal().astype(np.float32)[None]
-        ev(s["live"], th, seeds=SEEDS, key=0)
-        ev(s["live"], th, seeds=np.array([0]), key=0, record=True)
-        if s["reference"] is not None:
-            ev(s["reference"], th, seeds=8, key=4)
+        for robot in ("go1", "g1"):  # the humanoid's first run would otherwise compile for ~5 min
+            s = sim_for(robot)
+            th = (forward_nominal() if robot == "go1" else C.layout(robot).NEUTRAL).astype(np.float32)[None]
+            ev = s["ev"]
+            ev(s["live"], th, seeds=SEEDS, key=0)
+            ev(s["live"], th, seeds=np.array([0]), key=0, record=True)
+            if s["reference"] is not None:
+                ev(s["reference"], th, seeds=8, key=4)
 
     async def go():
         try:
@@ -1105,6 +1107,13 @@ class SPA(StaticFiles):
                 raise
             return await super().get_response("index.html", scope)
 
+
+# Feature routers (share links, deployment brief) live in their own modules; included before the
+# SPA mount, which catches every other path.
+from server import brief, share  # noqa: E402
+
+app.include_router(share.router)
+app.include_router(brief.router)
 
 if Path("web/dist").exists():
     app.mount("/", SPA(directory="web/dist", html=True), name="web")

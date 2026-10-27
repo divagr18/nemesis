@@ -17,7 +17,7 @@ const EXAMPLES = [
   "Slippery front feet when it suddenly stops",
 ];
 
-const HUMANOID_READY = false;  // flips on once the humanoid's 3D scene asset is published
+const HUMANOID_READY = true;  // the robot toggle (quadruped / humanoid / both)
 
 const SAMPLES = [
   ["Icy shove", "Make the floor icy and shove it from the left"],
@@ -235,7 +235,9 @@ export default function Lab() {
 
 function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPatch: () => void; patching: boolean }) {
   const fell = r.fall_rate_trained >= 0.5;
-  const canPatch = r.fall_rate_trained >= 0.5 && r.survivable !== false && !after && (r.robot || "go1") === "go1";
+  const humanoid = (r.robot || "go1") === "g1";
+  const canPatch = r.fall_rate_trained >= 0.5 && r.survivable !== false && !after && !humanoid;
+  const single = humanoid && r.version === "v1";  // the humanoid's lineage has one version so far
   return (
     <div className="rise mt-6">
       {r.reading && (
@@ -249,10 +251,12 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
       )}
       <div className="flex flex-col items-start gap-4">
         <p className="text-[15px] text-mute">
-          Original robot <span className={r.broke_baseline ? "text-ember" : "text-acid"}>{r.broke_baseline ? "fell" : "held"}</span>
-          <span className="text-faint"> · {pct(r.fall_rate_baseline)}</span>
-          <span className="mx-3 text-line">/</span>
-          {r.version} <span className={fell ? "text-ember" : "text-acid"}>{fell ? "fell" : "held"}</span>
+          {!single && <>
+            Original robot <span className={r.broke_baseline ? "text-ember" : "text-acid"}>{r.broke_baseline ? "fell" : "held"}</span>
+            <span className="text-faint"> · {pct(r.fall_rate_baseline)}</span>
+            <span className="mx-3 text-line">/</span>
+          </>}
+          {humanoid ? `Humanoid ${r.version}` : r.version} <span className={fell ? "text-ember" : "text-acid"}>{fell ? "fell" : "held"}</span>
           <span className="text-faint"> · {pct(r.fall_rate_trained)}</span>
           {r.score > 0 && <span className="ml-3 font-mono text-sm text-ember">+{r.score}</span>}
         </p>
@@ -263,6 +267,7 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
           </button>
         )}
       </div>
+      {humanoid && fell && <p className="mt-3 text-sm text-faint">Training the humanoid from the page is coming; the quadruped can learn this now.</p>}
       {r.survivable === false && r.fall_rate_trained > 0 && (
         <p className="mt-3 text-sm text-faint">Physics wins: even our toughest robot falls {pct(r.reference_fall_rate)} of the time here. Try something subtler.</p>
       )}
