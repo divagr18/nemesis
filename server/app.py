@@ -322,7 +322,7 @@ async def log_attack(program: Program, theta: np.ndarray | None = None, text: st
         versions_g1.record({result["id"]: result["fall_rate_trained"]}, result["version"])
         return result
     versions.record({result["id"]: result["fall_rate_trained"]}, result["version"])
-    if source != "agent":
+    if source not in ("agent", "brief"):  # deployment-brief situations never trigger a community retrain
         _maybe_community_patch()
     return result
 
@@ -335,7 +335,7 @@ def _maybe_community_patch():
     trained = {a for v in versions.all() for a in v["attacks"]}
     live = versions.live()["name"]
     fresh = [r for r in _attacks() if r["broke_trained"] and r.get("survivable", True)
-             and r.get("version") == live and r["id"] not in trained]
+             and r.get("version") == live and r["id"] not in trained and r.get("source") != "brief"]
     if len(fresh) >= COMMUNITY_BATCH:
         job = jobs.new("patch")
         job.community = True
@@ -1049,7 +1049,7 @@ HOF_KEYS = ("id", "text", "clip", "trajs", "fall_rate_trained", "conditions", "t
 @app.get("/api/hall_of_fame")
 def hall_of_fame(limit: int = 20):
     status = versions.status()
-    broke = [r for r in _attacks() if r["broke_trained"]]
+    broke = [r for r in _attacks() if r["broke_trained"] and r.get("source") != "brief"]
     return [{**{k: r.get(k) for k in HOF_KEYS}, "status": status.get(r["id"], {})} for r in broke[-limit:][::-1]]
 
 
@@ -1058,7 +1058,7 @@ def leaderboard(limit: int = 10):
     """Most subtle successful attacks; one entry per attacker (their best)."""
     best = {}
     for r in _attacks():
-        if not r.get("score"):
+        if not r.get("score") or r.get("source") == "brief":
             continue
         who = r.get("handle") or ("Nemesis agent" if r.get("source") == "agent" else "anonymous")
         if who == "anonymous":
