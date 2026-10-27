@@ -25,7 +25,7 @@ from nemesis.envs.base import load_env
 
 
 def ppo_config(env_name: str, num_timesteps: int | None = None, num_evals: int | None = None,
-               learning_rate: float | None = None):
+               learning_rate: float | None = None, num_eval_envs: int | None = None):
     """Playground's tuned PPO config. Brax rounds the budget up to whole eval epochs."""
     params = locomotion_params.brax_ppo_config(env_name)
     if num_timesteps:
@@ -35,6 +35,8 @@ def ppo_config(env_name: str, num_timesteps: int | None = None, num_evals: int |
     if learning_rate:
         params.learning_rate = learning_rate
     params.num_envs = config.profile().num_envs
+    if num_eval_envs:
+        params.num_eval_envs = num_eval_envs
     _cap_forced_resets(params)
     return params
 
@@ -81,6 +83,7 @@ def train(
     eval_env=None,
     nemesis: bool = True,
     learning_rate: float | None = None,
+    num_eval_envs: int | None = None,
 ):
     """Trains a policy.
 
@@ -99,7 +102,7 @@ def train(
     else:
         env = env or load_env(env_name, body_collisions=False)[0]
         eval_env = eval_env or load_env(env_name, body_collisions=False)[0]
-    params = ppo_config(env_name, num_timesteps, num_evals, learning_rate)
+    params = ppo_config(env_name, num_timesteps, num_evals, learning_rate, num_eval_envs)
     if restore_params is not None and nemesis:
         norm, pol, val = restore_params
         restore_params = (_reset_theta_normalizer(norm), pol, val)

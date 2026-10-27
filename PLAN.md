@@ -191,6 +191,38 @@ experiments/{run_arm,gauntlet,crossplay,analyze}.py   server/{app,modal_app}.py 
 
 ---
 
+## P10: Product features (decided Oct 27, after the science was finished)
+
+This is a tech hackathon, so the product is the story. The benchmark is a one-line credibility note in the README, not the pitch. The rubric is Impact, Meta tooling, Technical depth and Demo. The Indie track is judged on "creativity, technical ambition, and whether it works". Bonus prizes: Viral, Open-weight, Agentic, Creative and Community vote.
+
+| # | Feature | What it is | Serves | Done when |
+|---|---|---|---|---|
+| F1 | **Patch it** | After a break, one click fine-tunes the live robot on that attack: the attack's θ plus a jitter cloud, mixed with nominal and the community bank, for ~10–20M steps. It then re-runs the attack, and the robot survives. The new version must pass a regression gate (nominal walking + hand-written gauntlet no worse) before it goes live. Progress streams to the page. | Demo, depth | Break → patch → survive, in one take, in about 3 min on an L40S |
+| F2 | **The robot learns from everyone** | Versioned robots (`v1, v2…`) with lineage, each trained on community attacks. Hall of Fame shows "broke v2 · survived since v3". Attack score = how subtle it was: higher for less force or deviation. Leaderboard. Auto-retrains every N new successful attacks. | Community vote, viral | Versions page, leaderboard, auto-retrain job |
+| F3 | **Agent mode** | Wonder as a tool-calling agent (native `function_call`, verified on Oct 27). Tools: `test_attack` (CMA-ES over a program's ranges), `shrink`, `sweep` (safety margin), `watch` (Spark on the clip), `patch`, `verify`. Its reasoning trace streams live: hypothesis → test → refine → diagnose → fix → verify. | Best Agentic, depth, demo | "Let Nemesis attack" streams a full campaign in a few minutes |
+| F4 | **Your world** | Upload a photo or short video of a place (stairs, wet tiles, gravel, a ramp). Spark estimates the surface, friction, slope and hazards; Wonder writes the attack program; the robot runs it. This simulates your environment, so no physical robot is needed. | Meta tooling (Spark vision), viral | Photo → scenario → clip with Spark's reading shown |
+| F5 | **3D replay in the browser** | The server exports per-frame body poses plus a one-off mesh asset. three.js renders an orbit camera, a timeline scrubber, before/after robots side by side, and overlays (ice slab, push arrows, payload, tinted weak motors, a tilted floor for slopes). No browser physics, so there's no porting risk. | Demo quality, every video shot | Orbit/scrub replay of any attack; mp4 kept as fallback |
+| F6 | **Red-team report** | A pentest-style report for a policy version: failure modes ranked by severity, and for each one the hypothesis, minimal counterexample, clip, Spark diagnosis and **safety margin** (bisection along the key parameter), before/after patch. Wonder writes the executive summary. HTML page plus Markdown. | Impact ("who benefits") | `/report/<version>` renders |
+| F7 | **Humanoid** | A second robot from Playground (G1 or Berkeley Humanoid joystick). Generalize the θ layout to N feet and N joints, train a baseline on AWS, and add a robot picker on the page. | Viral, generality | A humanoid attack runs end to end on the page |
+| F8 | **Fully open-weight mode** | `NEMESIS_OPEN=1`: Glimmer is the adversary/translator and Muse Spark Open does vision, both self-hosted (llama.cpp). One `docker compose up` gives an offline red team on one GPU. | Best open-weight build ($10k) | The whole loop runs with no Meta API key |
+
+Architecture changes:
+- `server/` is split into modules: `jobs.py` (background jobs + SSE event streams), `versions.py` (policy registry + regression gate), `traj.py` (3D export), `agent.py`, `world.py`, `report.py`.
+- The frontend stays build-free: ES modules with three.js from a CDN via an import map. Each feature lives in its own file under `web/dist/js/`.
+
+Deployment:
+- one g5/g6e box with HTTPS, needed for the microphone and camera (Caddy + a domain, or a Cloudflare tunnel);
+- it stays up through the community vote (announced Nov 16), about $1–2/h;
+- the regression gate and rate limits guard against abuse.
+
+Schedule:
+- Oct 27–28: F1, F5, deploy.
+- Oct 29–30: F3, F4.
+- Oct 31: F2, F6.
+- Nov 1: F7 and F8 (in parallel worktrees).
+- Nov 2–3: video.
+- Nov 4: ship.
+
 ## Stretch slots (pick up after the named gate, in priority order)
 | Slot | Sub-steps | Est. | After | Serves |
 |---|---|---|---|---|

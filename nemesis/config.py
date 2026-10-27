@@ -25,6 +25,27 @@ SAM = "sam-3.1"
 #   meta-models/Muse-Glimmer-30B-GGUF:Q4_K_M (16.8 GB, fits a 24 GB L4)
 GLIMMER = "glimmer"
 GLIMMER_URL = os.environ.get("NEMESIS_GLIMMER_URL", "http://localhost:8080/v1")
+# Muse Spark Open (open weights, Muse Model License; 816B MoE, 42B active, text/image/video/audio in).
+# Smallest community GGUF (unsloth UD-IQ1_S) needs ~180 GB of RAM+VRAM, so it runs on its own box.
+SPARK_OPEN = "spark-open"
+SPARK_OPEN_URL = os.environ.get("NEMESIS_SPARK_OPEN_URL")
+
+# NEMESIS_OPEN=1: no Meta API at all. Text roles go to Glimmer; vision goes to Spark Open when a
+# server is configured, else to Glimmer itself (its llama.cpp server loads the vision projector).
+OPEN = os.environ.get("NEMESIS_OPEN") == "1"
+LOCAL_MODELS = {GLIMMER: GLIMMER_URL, SPARK_OPEN: SPARK_OPEN_URL}
+
+
+def text_model() -> str:
+    """Adversary, attack translation, report writing."""
+    return GLIMMER if OPEN else WONDER
+
+
+def vision_model() -> str:
+    """Watching failure clips, reading photos."""
+    if not OPEN:
+        return SPARK
+    return SPARK_OPEN if SPARK_OPEN_URL else GLIMMER
 
 BASE_ENV = "Go1JoystickFlatTerrain"
 # Playground's Go1 default is "warp"; pinned to "jax" until benchmarked (PLAN 1.2).

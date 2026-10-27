@@ -66,8 +66,10 @@ def _round_prompt(n: int, history: list[dict], observations: list[str]) -> str:
 
 
 def propose(n: int = 8, history: list[dict] | None = None, observations: list[str] | None = None,
-            model: str = config.WONDER, seed: int = 0, families=None) -> list[Program]:
-    """Returns up to n valid, compilable programs (only ops from `families` if given)."""
+            model: str | None = None, seed: int = 0, families=None) -> list[Program]:
+    """Returns up to n valid, compilable programs (only ops from `families` if given).
+    `model` defaults to config.text_model() (Wonder, or Glimmer in open mode)."""
+    model = model or config.text_model()
     from nemesis.adversary.modes import OP_FAMILY
     prompt = _round_prompt(n, history or [], observations or [])
     if families is not None:
@@ -75,13 +77,13 @@ def propose(n: int = 8, history: list[dict] | None = None, observations: list[st
         prompt += f"\n\nIn this session you may ONLY use these ops: {', '.join(ops)}."
     prompt += f"\n\n(proposal round seed {seed})"
     raw = client.respond(prompt, model=model, instructions=system_prompt(), reasoning="medium",
-                         tag="nemesis/propose")
+                         tag="nemesis/propose", json_only=True)
     programs, errors = _parse(raw)
     if errors:
         fix = (prompt + "\n\nYour previous answer had invalid programs:\n" + "\n".join(errors)
                + "\n\nPrevious answer:\n" + raw + "\n\nReturn the corrected JSON only.")
         raw = client.respond(fix, model=model, instructions=system_prompt(), reasoning="low",
-                             tag="nemesis/propose-fix")
+                             tag="nemesis/propose-fix", json_only=True)
         fixed, _ = _parse(raw)
         names = {p.name for p in programs}
         programs += [p for p in fixed if p.name not in names]

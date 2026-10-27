@@ -190,7 +190,7 @@ def main():
     ap.add_argument("--families", default=None,
                     help="comma-separated perturbation families the adversary may use (default: all)")
     ap.add_argument("--no-history", action="store_true", help="nemesis ablation: no attack history in the prompt")
-    ap.add_argument("--proposer", default=config.WONDER,
+    ap.add_argument("--proposer", default=config.text_model(),
                     help="nemesis arm's proposer: muse-wonder-1.0 (API) or glimmer (open weights, llama.cpp)")
     args = ap.parse_args()
     args.families = args.families.split(",") if args.families else None

@@ -362,6 +362,55 @@ Notes:
 4. **Open weights are enough.** The self-hosted Glimmer 30B (Q4, one A10G) proposes programs as productive as Wonder's. The adversary does not need a frontier API.
 5. **Not shown:** that Spark's video feedback or the archive history improves search. Both are within noise or slightly negative. Spark's role is labelling, not steering.
 
+## Oct 27: pivot to product features (P10 in PLAN.md)
+
+The user pointed out, correctly, that this is a tech hackathon, not a research one. The benchmark is now a single credibility line. Everything else goes into the product: F1–F8 in PLAN.md.
+
+- **Native tool calling works on Wonder** (verified). `responses.create(tools=[...])` returns `function_call` items, and the conversation chains with `previous_response_id` + `function_call_output`. Agent mode (F3) is a real tool-using agent, not a JSON-action loop.
+- **Patch (F1), first end-to-end test on the 4060** (1024 envs, 20M steps, from `baseline_v2`):
+  - attack: ice under all 4 feet (μ 0.08) + a 100 N shove;
+  - total time 7 min: compile ~65 s, two 54 s evals, PPO ~3 min;
+  - **the gate rejected it**: falls 88% → 100%; walking (4.57 → 4.49 m) and gauntlet (18.3% → 15.5%) were fine.
+  
+  That attack is probably beyond any controller. **Fix:** every attack is also run against our toughest policy (`arms_final/dr_s1/round_2`). If even that robot falls ≥90% of the time, the page says "Physics wins" and doesn't offer Patch; the community auto-patch also skips it. Patch evals were cut to 2 × 128 envs (54 s → 14 s), and compilation hit the cache (65 → 37 s).
+- **Your world (F4), first test:** a Wikimedia Commons photo of an icy Helsinki sidewalk. Spark read it as μ≈0.2, "packed ice and slush with a grit-strewn strip", slope 0. The robot fell 75% (v1). Wonder had added an 80 N push the photo didn't justify, so pushes are now only modeled when the hazards mention people, pets or traffic.
+- **Process incident:** the F8 subagent edited `server/app.py` (rerouting `translate` through `config.text_model()`) at the same time as me. Its read-modify-write dropped my `log_attack` and community-patch additions, and the server failed to import (`NameError: log_attack`). I restored them and told the agent to keep out of `server/` and `web/`. Lesson: subagents get disjoint files, stated explicitly.
+
+## Oct 27: fully open-weight mode (F8) on one A10G
+
+Setup: `NEMESIS_OPEN=1`, `MODEL_API_KEY` unset or empty and `.env` moved away, on a g5.2xlarge (A10G, 23,028 MiB). One llama.cpp server (`ghcr.io/ggml-org/llama.cpp:server-cuda`, build b11889) runs `meta-models/Muse-Glimmer-30B-GGUF:Q4_K_M`. `-hf` also loads `mmproj-Muse-Glimmer-30B-Q4_K_M.gguf`, and the server reports `vision: true, video: true`. The simulator runs on the same GPU.
+
+- **Muse Spark Open does not fit:**
+  - 816B MoE, 42B active. Official weights are BF16 (~2 TB) and NVFP4 (≥700 GB).
+  - The smallest community GGUF, `unsloth/Muse-Spark-Open-816B-A42B-GGUF` UD-IQ1_S, is 175.6 GB (UD-IQ2_XXS: 225.6 GB).
+  - So it does not fit on an A10G or on an L40S (g6e.xlarge: 48 GB VRAM + 32 GB RAM). Not run.
+  - Glimmer accepts images itself (ViT perception encoder, Apache 2.0), so it is the open vision model on one GPU. Spark Open is used only when `NEMESIS_SPARK_OPEN_URL` points at a server.
+- **VRAM:** 17,671 MiB with Glimmer loaded (24k ctx, q8_0 KV, 4 slots). The peak during a sim, render and observe run was 19,061 MiB, with `XLA_PYTHON_CLIENT_PREALLOCATE=false`.
+- **Clips go to Glimmer as frames.** Each frame is a JPEG of a 640×480 render, with a `[frame at t=…]` label. 8 frames take 3.4k prompt tokens and 12 frames take 5.0k.
+- **Vision quality, one clip** (μ 0.25 + 150 N lateral push at 1.5 s; ground truth: the robot trots, then rolls over at ~1.6–1.9 s and ends on its back with its legs up):
+
+  | Frames | Effort | Latency | Result |
+  |---|---|---|---|
+  | 8 | low | 27–31 s | Mostly restates the given conditions |
+  | 8 | high | 120 s | Same as 8/low |
+  | 12 | low | 37 s | The only time-resolved account: "on the ground on its left side… right-side legs lifted… remain in the air" from ~2.1 s |
+  | 12 | high | 104 s | Same as 8/low |
+
+  The `mode` field is wrong in every run: it names the camera ("side_tracking", "failure_description") instead of a failure mode. The default is now 12 frames.
+- **End-to-end round, open mode:** `run_arm.py --arm nemesis --attack-only --rounds 1 --per-round 4 --pop 16 --gens 4`, in 5 min 27 s wall.
+  - Glimmer proposed 4/4 valid programs in 60 s (4.6k prompt and 1.5k completion tokens), with no fix round. Example hypotheses:
+    - "trot relies on rear-foot grip for yaw torque; wet tile friction loss during a forward-to-turn command switch"
+    - "action latency plus proprioception noise delays recovery; a lateral push timed in single support"
+  - CMA found 1 failure: latency 1 step + obs noise 0.15 + 82 N lateral push, with fall rate 59% on 32 fresh seeds.
+  - Glimmer watched its clip in 36 s. It got the timeline right ("normal trot up to ~1.6 s… by ~2.3 s on its side… legs up in the air… no recovery"). It misread latency 1.022 (steps) as "1.022 s", and its leg-level detail cannot be checked.
+- **Translate (`server/app.py`), Glimmer:**
+  - Without constraints, 1 of the first 2 requests returned malformed JSON (a misplaced `]`). With `json_only=True` (llama.cpp `json_object` grammar), 8/8 test requests were usable at 13–24 s each, and "sing me a song" was declined in 3 s.
+  - Over HTTP, also with `json_only`, 1 of 2 requests failed Program validation (`"carry a 5 kg backpack up a 15 degree ramp"`: extra top-level fields).
+  - A full Program-schema grammar also works (8/8) once `$defs` is hoisted to the top level of the `anyOf` wrapper. llama.cpp rejects nested `$defs`.
+  - Glimmer maps "shove it from the left" to `force_y=+100`, which pushes toward the robot's left.
+- **Server:** `scripts/open_up.sh` reused the cached weights and was up in 106 s. `POST /api/attack` took 109 s on a cold process, mostly JIT compile.
+- **Voice:** `POST /api/attack_voice` went through faster-whisper `base.en` (CPU int8) and gave an exact transcript of a TTS wav. It took 0.6–1.3 s per transcription and 58 s end to end. faster-whisper 1.2.1's PyAV decoder fails with av 19 (`metadata_errors`), so the WAV is decoded with `wave` + numpy instead.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|

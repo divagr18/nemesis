@@ -1,0 +1,36 @@
+# Fully open-weight Nemesis (NEMESIS_OPEN=1): self-hosted Meta open-weight models, no API key.
+# Start with scripts/open_up.sh, which also runs the Nemesis server against these.
+#
+# glimmer     Muse Glimmer 30B, Q4_K_M + its vision projector (Apache 2.0). Text AND vision.
+#             17,671 MiB of VRAM loaded (24k ctx, q8_0 KV); 19,061 MiB peak with the sim, 24 GB A10G.
+# spark-open  Muse Spark Open 816B-A42B (Muse Model License), 1-bit community GGUF with the MoE
+#             experts in system RAM. Needs ~200 GB RAM + one GPU; opt in with --profile spark-open.
+#             Products using it must show "Built with Muse Spark Open".
+services:
+  glimmer:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    command: >
+      -hf meta-models/Muse-Glimmer-30B-GGUF:Q4_K_M --alias glimmer
+      --host 0.0.0.0 --port 8080 -ngl 99 -c 24576 -fa on
+      --cache-type-k q8_0 --cache-type-v q8_0 --jinja
+    ports: ["127.0.0.1:8080:8080"]
+    volumes: ["${HOME}/.cache/huggingface:/root/.cache/huggingface"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: all, capabilities: [gpu]}]
+    restart: unless-stopped
+
+  spark-open:
+    profiles: ["spark-open"]
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    command: >
+      -hf unsloth/Muse-Spark-Open-816B-A42B-GGUF:UD-IQ1_S --alias spark-open
+      --host 0.0.0.0 --port 8081 -ngl 99 --n-cpu-moe 62 -c 32768 -fa on --jinja
+    ports: ["127.0.0.1:8081:8081"]
+    volumes: ["${HOME}/.cache/huggingface:/root/.cache/huggingface"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: all, capabilities: [gpu]}]
+    restart: unless-stopped

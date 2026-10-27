@@ -1,4 +1,4 @@
-"""Smoke-test the Meta models used by Nemesis (costs a few cents).
+"""Smoke-test the Meta models used by Nemesis (costs a few cents; free with NEMESIS_OPEN=1).
 
 usage: python scripts/smoke_llm.py <video.mp4> <audio.wav>
 """
@@ -21,18 +21,18 @@ schema = {
     "required": ["weakness", "attack", "severity"],
     "additionalProperties": False,
 }
-print("== Wonder (JSON schema)")
+print(f"== {config.text_model()} (JSON schema)")
 print(client.respond(
     "A quadruped robot policy was trained on flat ground with mild friction randomization. "
     "Propose one physically plausible condition most likely to make it fall.",
-    model=config.WONDER, schema=schema, reasoning="low", tag="smoke/wonder", cache=False))
+    model=config.text_model(), schema=schema, reasoning="low", tag="smoke/wonder", cache=False))
 
-print("== Spark (video)")
+print(f"== {config.vision_model()} (video)")
 print(client.respond(
     [{"type": "input_text", "text": "Describe what the robot in this video does in two sentences. "
                                     "Is it walking forward, standing still, or falling?"},
-     client.video_item(video)],
-    model=config.SPARK, tag="smoke/spark-video", cache=False))
+     client.video_item(video, config.vision_model())],
+    model=config.vision_model(), tag="smoke/spark-video", cache=False))
 
-print("== Voice Transcribe")
+print("== Voice Transcribe" + (" (Whisper)" if config.OPEN else ""))
 print(client.transcribe(audio, tag="smoke/transcribe"))

@@ -77,7 +77,7 @@ The robot then learns from exactly those failures.
 | **Muse Wonder** (`muse-wonder-1.0`) | The adversary. Writes hypotheses and attack programs, and translates visitors' plain-English attacks into physics. |
 | **Muse Spark 1.3** (video input) | Watches failure clips and names the mode ("front-foot slip forward flip"). Its observations steer Wonder's next round. |
 | **Muse Voice Transcribe** | Spoken attacks on the public page. |
-| **Muse Glimmer** (open weights, self-hosted via llama.cpp) | Drop-in open-weight adversary (`--proposer glimmer`). |
+| **Muse Glimmer** (open weights, self-hosted via llama.cpp) | Drop-in open-weight adversary (`--proposer glimmer`). With `NEMESIS_OPEN=1` it also translates attacks and watches clips (see [Fully open-weight mode](#fully-open-weight-mode)). |
 
 ## Results
 
@@ -193,3 +193,26 @@ python experiments/finetune.py --base runs/baseline_v2 --atlas runs/hunt/atlas.j
 python experiments/run_arm.py --arm nemesis --seed 0 --out runs/arms/nemesis_s0   # one experimental arm
 uvicorn server.app:app --port 8000                           # the "try to break the robot" page
 ```
+
+## Fully open-weight mode
+
+`NEMESIS_OPEN=1` runs the whole loop on self-hosted Meta open-weight models, with no Meta API key:
+
+| Role | API mode | Open mode |
+|---|---|---|
+| Adversary, plain-English attack translation, report text | Muse Wonder | **Muse Glimmer 30B** (Q4_K_M GGUF, llama.cpp) |
+| Watching failure clips, reading photos | Muse Spark 1.3 | **Muse Spark Open** if `NEMESIS_SPARK_OPEN_URL` is set, otherwise Glimmer's own vision encoder. Clips are sent as 12 sampled frames. |
+| Spoken attacks | Muse Voice Transcribe | Whisper `base.en` on the CPU (`pip install faster-whisper`; Meta has no open speech model) |
+
+```bash
+scripts/open_up.sh    # Glimmer in llama.cpp (docker-compose.open.yml), then the server on :8000
+```
+
+Everything else stays the same: the call sites ask `config.text_model()` / `config.vision_model()`, and the disk cache and `runs/llm_log.jsonl` work identically.
+
+**Hardware.** One 24 GB GPU is enough. Measured on a g5.2xlarge (A10G 24 GB):
+- Glimmer with its vision projector and 24k context uses 17,671 MiB (of 23,028) once loaded.
+- With the MJX simulator and renderer on the same GPU (`XLA_PYTHON_CLIENT_PREALLOCATE=false`), usage peaks at 19,061 MiB.
+- Translating an attack takes 13–24 s, a proposal round of 4 programs 60 s, and watching a clip 30–37 s.
+
+**Muse Spark Open** is an 816B mixture-of-experts model (42B active). It does not fit on any single GPU. The smallest community GGUF (`unsloth/Muse-Spark-Open-816B-A42B-GGUF`, UD-IQ1_S) is 175.6 GB, so it needs a host with at least 256 GB of RAM and a GPU, with the experts kept in RAM (for example, a g6e.8xlarge: one L40S plus 256 GiB). `SPARK_OPEN=1 scripts/open_up.sh` starts it through the compose `spark-open` profile. This path has not been run yet. Its license requires "Built with Muse Spark Open" to be shown wherever it is used.

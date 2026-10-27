@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nemesis replay</title>
+<meta name="description" content="Orbit and scrub a Nemesis attack rollout in 3D: the original policy and the Nemesis-trained one, side by side.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<style>
+  :root { --bg: #0b0d12; --text: #e7e9ee; --muted: #8b93a7; --crimson: #e11d48; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 Inter, system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: clamp(22px, 4vw, 32px); margin: 0 0 4px; letter-spacing: -0.01em; }
+  h1 span { color: var(--crimson); }
+  p { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  code { font-family: "JetBrains Mono", monospace; font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+  <h1><span>Nemesis</span> replay</h1>
+  <p>Drag to orbit, scroll to zoom, space to play or pause, arrow keys to step.
+    Query params: <code>?traj=url1,url2&amp;labels=A,B&amp;assets=url&amp;layout=ghost&amp;t=2.1&amp;paused=1</code></p>
+  <div id="replay"></div>
+</main>
+<script type="module">
+  import { mountReplay } from './js/replay.js';
+
+  const q = new URLSearchParams(location.search);
+  const list = (k) => (q.get(k) || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const urls = list('traj').length ? list('traj') : ['assets/sample_traj.json', 'assets/sample_traj_held.json'];
+  const labels = list('labels');
+  const t = q.has('t') ? +q.get('t') : 0;
+  window.replay = await mountReplay(document.getElementById('replay'), {
+    assetsUrl: q.get('assets') || 'assets/go1_scene.json',
+    trajUrls: urls.map((url, i) => ({ url, label: labels[i] })),
+    layout: q.get('layout') || 'side',
+    startTime: t,
+    autoplay: !q.has('paused'),
+    speed: q.has('speed') ? +q.get('speed') : 1,
+  });
+</script>
+</body>
+</html>

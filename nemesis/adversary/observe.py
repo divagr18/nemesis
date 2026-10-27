@@ -35,8 +35,10 @@ buckle or lift, and when. Answer as JSON."""
 
 
 def observe_failure(evaluator, params, theta: np.ndarray, out_path: str | Path, seed: int = 0,
-                    model: str = config.SPARK) -> dict:
-    """Renders one failing rollout of θ (logged trajectory) and asks Spark to describe it."""
+                    model: str | None = None) -> dict:
+    """Renders one failing rollout of θ (logged trajectory) and asks Spark to describe it.
+    `model` defaults to config.vision_model() (Spark, or the open-weight vision model)."""
+    model = model or config.vision_model()
     probe = evaluator(params, np.asarray(theta)[None], seeds=8)
     falls = np.flatnonzero(probe["fell"][0])
     seed = int(falls[0]) if len(falls) else seed
@@ -48,7 +50,7 @@ def observe_failure(evaluator, params, theta: np.ndarray, out_path: str | Path, 
     save_video(frames, out_path, evaluator.env)
     obs = client.respond(
         [{"type": "input_text", "text": PROMPT.format(conditions=C.describe(theta))},
-         client.video_item(out_path)],
+         client.video_item(out_path, model)],
         model=model, schema=SCHEMA, tag="spark/observe", reasoning="low")
     obs["clip"] = str(out_path)
     obs["fell"] = bool(rec["fell"][0, 0])
