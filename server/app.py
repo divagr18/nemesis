@@ -24,6 +24,7 @@ import sys
 import time
 import uuid
 from collections import defaultdict
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -171,6 +172,21 @@ def translate(text: str, limit: int = 500, robot: str = "go1"):
     return dsl.language(robot).Program.model_validate(data)
 
 
+# The mp4 clip is for Spark and the cards; the page plays the 3D replay, so rendering happens after
+# the result is returned. One thread: MuJoCo's EGL renderer stays on a single thread.
+_render_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="render")
+_renders: dict[str, Future] = {}
+
+
+def clip_ready(name_or_url: str, timeout: float = 300) -> Path:
+    """The mp4's path, waiting for its render if it is still in progress."""
+    clip_id = Path(name_or_url).stem
+    pending = _renders.get(clip_id)
+    if pending is not None:
+        pending.result(timeout=timeout)
+    return CLIPS / f"{clip_id}.mp4"
+
+
 def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, object], contrast: bool = False,
              report=lambda *a, **k: None, robot: str = "go1") -> dict:
     """Runs one θ against two policies and renders them side by side on a shared seed (the first
@@ -200,12 +216,11 @@ def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, obje
 
     clip_id = uuid.uuid4().hex[:10]
     CLIPS.mkdir(parents=True, exist_ok=True)
-    clips, trajs = [], []
-    report("Rendering the clip and the 3D replay")
+    qs, trajs = [], []
+    report("Preparing the 3D replay")
     for (name, _), r in zip((left, right), recs):
         q = r["qpos"][0, 0][:t_end]
-        model, scene_fn = overlays(ev.env.mj_model, theta, q, ev.env.dt, robot=robot)  # make the attack visible
-        clips.append(render_qpos(model, q, width=480, height=360, scene_fn=scene_fn))
+        qs.append(q)
         # Poses for the 3D replay; the evaluator's fall time (it also counts body contact).
         fell = bool(r["fell"][0, 0])
         kw = {"robot": robot} if robot != "go1" else {}
@@ -214,7 +229,16 @@ def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, obje
         path = CLIPS / f"{clip_id}_{len(trajs)}.json"
         path.write_text(json.dumps(tr))
         trajs.append({"label": name, "url": f"/traj/{path.name}"})
-    save_video(tile(clips, cols=2), CLIPS / f"{clip_id}.mp4", ev.env)
+
+    def render():
+        clips = []
+        for q in qs:
+            model, scene_fn = overlays(ev.env.mj_model, theta, q, ev.env.dt, robot=robot)  # make the attack visible
+            clips.append(render_qpos(model, q, width=480, height=360, scene_fn=scene_fn))
+        save_video(tile(clips, cols=2), CLIPS / f"{clip_id}.mp4", ev.env)
+
+    _renders[clip_id] = fut = _render_pool.submit(render)
+    fut.add_done_callback(lambda _: _renders.pop(clip_id, None))
     return {"clip_id": clip_id, "clip": f"/clips/{clip_id}.mp4", "trajs": trajs,
             "fall_rates": {name: float(r["fell"][0].mean()) for name, r in res.items()},
             # did the recorded seed itself show the left robot falling and the right one holding?
@@ -563,7 +587,7 @@ def explain_learning(clip_url: str, trajs: list[dict], attack_text: str) -> str:
           f"robot is the old policy, the RIGHT robot was just retrained on this situation. Measured from the "
           f"simulation: {json.dumps(nums)}. Watch the clip and say in one calm sentence what the right robot does "
           f"differently that lets it handle this. Cite at least one measured number. Answer as JSON."},
-         client.video_item(CLIPS / Path(clip_url).name, config.vision_model())],
+         client.video_item(clip_ready(clip_url), config.vision_model())],
         model=config.vision_model(), schema=LEARNED_SCHEMA, reasoning="low", tag="serve/learned")
     return one_line(out["sentence"], 240)
 
@@ -612,7 +636,7 @@ class Ctx:
 
     @staticmethod
     def clip_path(url: str) -> Path:
-        return CLIPS / Path(url).name
+        return clip_ready(url)
 
 
 class AgentIn(BaseModel):
@@ -902,7 +926,23 @@ async def preview():
 @app.on_event("startup")
 async def _warm_showcase():
     """Compile the simulator and prepare the hero replay before the first visitor arrives."""
+    def compile_paths():  # every shape an attack uses: 4-seed batch, 1-seed recording, 8-seed reference check
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments"))
+        from finetune import forward_nominal
+
+        s = sim()
+        ev, th = s["ev"], forward_nominal().astype(np.float32)[None]
+        ev(s["live"], th, seeds=SEEDS, key=0)
+        ev(s["live"], th, seeds=np.array([0]), key=0, record=True)
+        if s["reference"] is not None:
+            ev(s["reference"], th, seeds=8, key=4)
+
     async def go():
+        try:
+            async with _gpu:
+                await asyncio.to_thread(compile_paths)
+        except Exception:  # noqa: BLE001  (warm-up is best effort)
+            pass
         for warm in (showcase, preview):
             try:
                 await warm()
@@ -1044,6 +1084,11 @@ def traj(name: str):
 @app.get("/clips/{name}")
 def clip(name: str):
     path = CLIPS / Path(name).name
+    if path.suffix == ".mp4" and Path(name).stem in _renders:
+        try:
+            clip_ready(name, timeout=120)
+        except Exception:  # noqa: BLE001  (a failed render is just a missing clip)
+            pass
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(path, media_type="video/mp4")

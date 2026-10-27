@@ -15,4 +15,4 @@ export UV_LINK_MODE=copy
 
 uv sync --frozen --all-extras
 "$UV_PROJECT_ENVIRONMENT/bin/python" -c "import jax; print('jax', jax.__version__, jax.devices())"
-MUJOCO_GL=egl "$UV_PROJECT_ENVIRONMENT/bin/python" -m pytest -q
+[ -n "${SKIP_TESTS:-}" ] || MUJOCO_GL=egl "$UV_PROJECT_ENVIRONMENT/bin/python" -m pytest -q
