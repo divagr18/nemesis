@@ -10,6 +10,8 @@
   ramp           the tilted concrete ramp box (as the physics has it) and its flat top landing, with
                  an ember strip where the ramp leaves the floor
 
+Clips use the site's dark look (dark floor and sky, light-grey robot) so they match the 3D replay.
+
 usage:
     model, scene_fn = overlays(mj_model, theta, qpos, dt, robot="go1")
     frames = render_qpos(model, qpos, scene_fn=scene_fn)
@@ -26,11 +28,39 @@ from nemesis.perturb import terrain
 
 ICE = np.array([0.55, 0.82, 1.0, 0.45], np.float32)
 CRIMSON = np.array([0.88, 0.11, 0.28, 0.95], np.float32)
-CONCRETE = np.array([0.6, 0.6, 0.58, 1.0], np.float32)
+CONCRETE = np.array([0.22, 0.23, 0.25, 1.0], np.float32)  # the replay's step grey
 EMBER = np.array([0.96, 0.36, 0.12, 1.0], np.float32)
 NOSING = 0.012  # half-thickness of the ember strip along each riser's top edge
 TRUNK = robots.GO1_SPEC.trunk
 FEET_SITES = robots.GO1.foot_sites
+
+
+BG = np.array([11, 13, 18], np.float32)          # the replay's background, #0b0d12
+FLOOR = np.array([15, 18, 24], np.float32)       # the replay's floor, #0f1218
+GRID = np.array([44, 50, 62], np.float32)        # its grid lines
+ROBOT = np.array([0.71, 0.73, 0.78, 1.0], np.float32)  # #b4bbc8
+
+
+def dark_look(model):
+    """Recolour a model copy to the site's dark scene: the skybox becomes the background colour, the
+    floor's checker becomes a dark floor with faint lines, and the robot's visual geoms turn light grey."""
+    for t in range(model.ntex):
+        a, w, h, c = model.tex_adr[t], model.tex_width[t], model.tex_height[t], model.tex_nchannel[t]
+        if c < 3:
+            continue
+        px = model.tex_data[a:a + w * h * c].reshape(-1, c).astype(np.float32)
+        if model.tex_type[t] == mujoco.mjtTexture.mjTEXTURE_SKYBOX:
+            px[:, :3] = BG
+        else:  # light tiles -> dark floor, dark lines -> faint grid
+            lum = px[:, :3].mean(1, keepdims=True) / 255.0
+            px[:, :3] = FLOOR + (1.0 - lum) * (GRID - FLOOR)
+        model.tex_data[a:a + w * h * c] = px.clip(0, 255).astype(np.uint8).reshape(-1)
+    model.mat_reflectance[:] = 0.0
+    model.vis.rgba.haze[:] = [*(BG / 255.0), 1.0]  # no bright band at the horizon
+    for g in range(model.ngeom):
+        if model.geom_bodyid[g] != 0 and model.geom_contype[g] == 0 and model.geom_conaffinity[g] == 0:
+            model.geom_rgba[g] = ROBOT  # visual-only robot meshes (collision geoms are invisible anyway)
+            model.geom_matid[g] = -1
 
 
 def _slot(theta, name, L=C.GO1):
@@ -59,6 +89,7 @@ def overlays(mj_model, theta, qpos: np.ndarray, dt: float, robot: "str | robots.
     _s = lambda name: _slot(theta, name, L)  # noqa: E731
     theta = np.asarray(theta, np.float32)
     model = copy.deepcopy(mj_model)
+    dark_look(model)
     trunk = spec.trunk
 
     # Weak motors: tint the visual geoms of the body each weakened joint moves.
