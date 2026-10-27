@@ -269,13 +269,17 @@ Features 1–8 were picked by the user, with 10 as a stretch. Positioning: descr
 - VIDEO_PLAN v4
 - README feature coverage
 
+**Done since:**
+- #7 humanoid on the page (toggle, Both, warmed at startup; ~25 s per run on the T4). A G1 patch from the page is not built.
+- #2 course UI: replay draws ramps, descents and every ice patch (067d850); Break it shows the route in order.
+- #4 safety map on the Report, per finding, on request.
+- 0.3 humanoid test bound justified from the pelvis geometry.
+- Autopilot capped at 5 tries on the public site (Muse says so; fair-use note in the UI).
+
 **Left:**
-- #7 humanoid on the page: the server and the G1 asset are done; still needed are deploy, HUMANOID_READY and a test. A G1 patch from the page is not built.
-- #2 course UI: replay.js must draw `ramps` and `ice_patches`, plus a segment legend and a fell-at marker, then a live check.
-- #4 safety map on the Report per finding.
+- #2: a live check of a route sentence on the public site.
 - #3 deployment brief.
 - #6 share pages and vertical clips.
-- 0.3 the `test_humanoid_wrapper` bound.
 - 0.6 mobile pass, dark Hall of Fame clips, a live Autopilot check.
 - New: SAM 3.1 in the photo flow (the video's real-place beat); Spark judging duel rounds (optional).
 - A stairs scenario that patches within 8M steps (for the cold open).
