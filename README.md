@@ -1,8 +1,8 @@
 # Nemesis
 
-**Robots that train against an AI that's trying to break them.**
+**An AI red team for robots: it finds how your robot fails, explains why, and fixes it.**
 
-Nemesis finds the physical conditions that make a walking robot fall, then trains the robot to survive them.
+Nemesis finds the physical conditions that make a walking robot fall, explains each failure in plain language, and trains the robot to survive them. Anyone can red-team it in plain English, typed or spoken.
 
 1. **Muse Wonder** acts as an adversary. It writes *hypotheses* about why the robot works, such as "the trot relies on rear-foot grip when the yaw command flips", and turns each one into an attack program in a physics DSL.
 2. **CMA-ES** searches each program's free parameters for the **most plausible** failure. It then shrinks that failure to its minimal form.
@@ -18,7 +18,7 @@ On a Unitree Go1 in MuJoCo MJX, one round of this loop cut falls on held-out han
 
 ## Why
 
-Robots trained in simulation fail in the real world in ways nobody predicted. The standard defense is **domain randomization**: perturb everything at random during training and hope the real world is in there somewhere. It's guessing.
+Robots trained in simulation fail in the real world in ways nobody predicted, and when they fail, nobody can tell you why. The standard defense is **domain randomization (DR)**: perturb everything at random during training. It works well, and our experiments confirm it's a strong training method, but it's blind. It needs a human to choose what to randomize, and it never tells you what breaks.
 
 Nemesis replaces guessing with a search for failures:
 - an LLM proposes **structured, compositional** attacks a fixed randomization range can't express (ice you walk *onto*, a shove timed *during* a turn, a command reversal *while* slipping);
@@ -85,7 +85,16 @@ The robot then learns from exactly those failures.
 | Held-out envelope, half width (DR-style) | 57.9% | **38.4%** |
 | Nominal, 1 m/s forward | 0% (4.5 m) | **0% (4.6 m)** |
 
-**Main experiment:** *(pending)*
+### Honest science: Nemesis vs domain randomization
+
+We compared five arms at a matched env-step budget: DR, random search, full-union CMA-ES, blind random programs, and Nemesis. That's 3 seeds × 3 rounds each, evaluated on a gauntlet whose hash was committed before any result. Then we **pre-registered** six follow-up experiments mapping where an LLM red team helps and where it doesn't ([`docs/PREREGISTRATION.md`](docs/PREREGISTRATION.md)).
+
+**What we found so far:**
+- DR over a well-chosen envelope is as strong as, or stronger than, adversarial fine-tuning as a *training* method at this budget.
+- Wonder's hypotheses are not more search-efficient than structured random programs at *finding* plausible failures.
+- Nemesis's distinctive outputs are *explanations*: named, physically reasoned hypotheses, minimal counterexamples, and Spark's video diagnoses. Plus a plain-language interface, and a red team that also works on DR-trained policies.
+
+Full tables: [`runs/analysis/summary.md`](runs/analysis/summary.md) and [`runs/analysis/wide.md`](runs/analysis/wide.md) *(numbers are filled in as the pre-registered experiments complete)*. The lab notebook records every bug, incident and decision along the way: [`docs/LAB_NOTEBOOK.md`](docs/LAB_NOTEBOOK.md).
 
 ## What was built during the hackathon
 
