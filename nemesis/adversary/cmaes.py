@@ -29,8 +29,12 @@ SHRINK_FAIL = 0.8   # shrinking stops while the failure is still clearly reprodu
 # when/where/what shape, not how strong (stairs_depth and stairs_start also have an "off" neutral
 # of 0 outside their range, so |θ - neutral| would be meaningless). stairs_height and
 # stairs_count are magnitudes: a 15 cm riser is a full-envelope deviation, as is 8 steps.
+# The course slots (Oct 28) follow the same rule: the ramp's start and run, the descent's landing
+# and the second patch's start are position/shape (the first three with an "off" 0); ramp_angle,
+# ice2_slip (= 1 - mu, so its deviation is ice_mu's) and ice2_length are magnitudes.
 NOT_MAGNITUDES = ("command_mode", "command_a", "command_b", "command_switch",
-                  "push1_start", "push2_start", "ice_start", "stairs_depth", "stairs_start")
+                  "push1_start", "push2_start", "ice_start", "stairs_depth", "stairs_start",
+                  "ramp_start", "ramp_length", "stairs_landing", "ice2_start")
 
 
 def _layout(evaluator):

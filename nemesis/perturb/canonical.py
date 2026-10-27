@@ -94,6 +94,37 @@ def _terrain_slots(r: robots.Robot) -> tuple:
              "distance from the start position, along the initial heading, to the first riser; the "
              "steps are 3 m wide, centred on the start position, and rise away from the robot",
              neutral_off=True),
+    ) + _course_slots(r)
+
+
+def _course_slots(r: robots.Robot) -> tuple:
+    """The course (layout v3, Oct 28): a ramp, a flight that comes back down, a second ice patch.
+    Appended after the stairs slots. Neutral is 0 everywhere, the padding value (start, length and
+    landing have an "off" 0 outside their range), so every older θ has none of them. Written by
+    the DSL's `course` op, which places them along the heading."""
+    hip = r.hip_height
+    return (
+        Slot("ramp_angle", 1, 0.0, 0.0, 15.0, "deg",
+             f"uphill ramp across the path, in DEGREES (0 = no ramp). Wheelchair ramp 3-5, steep "
+             f"driveway or loading ramp 8-12; beyond ~15 is unrealistic for this robot (hip ~{hip} m). "
+             f"After the ramp comes a flat 2.4 m landing at its top height. Set with the course op"),
+        Slot("ramp_start", 1, 0.0, 0.5, 6.0, "m",
+             "distance along the initial heading where the ramp leaves the floor", neutral_off=True),
+        Slot("ramp_length", 1, 0.0, 0.5, 2.2, "m",
+             "horizontal run of the ramp, from the floor to its top (rise = run * tan(angle))",
+             neutral_off=True),
+        Slot("stairs_landing", 1, 0.0, 1.5, 3.0, "m",
+             "0 = the stairs only go up; otherwise the top of the flight is a landing this long "
+             "(from the last riser up) and the same steps go back down to the floor (at most 4 "
+             "steps each way). Set with the course op (stairs_up then stairs_down)",
+             neutral_off=True),
+        Slot("ice2_slip", 1, 0.0, 0.0, 0.95, "1-mu",
+             "a second low-friction patch: its friction is 1 - ice2_slip (ice mu 0.05-0.15 = slip "
+             "0.85-0.95, wet tile mu 0.25-0.4 = slip 0.6-0.75; slip below 0.4 has no effect). "
+             "Stored as 1 - mu so 0 = no patch; set with the course op (ice/wet segments)"),
+        Slot("ice2_start", 1, 0.0, 0.0, 6.0, "m",
+             "distance along the initial heading where the second patch begins"),
+        Slot("ice2_length", 1, 0.0, 0.0, 4.0, "m", "second patch length (0 = no patch)"),
     )
 
 

@@ -64,7 +64,8 @@ def test_schema_lists_every_op():
 def test_control_adversaries():
     from nemesis.adversary.baselines import BoxProgram, random_program, random_thetas
     th = random_thetas(16, np.random.default_rng(0))
-    assert th.shape == (16, C.D) and np.all(th >= C.LO - 1e-6) and np.all(th <= C.HI + 1e-6)
+    off = C.GO1.NEUTRAL_OFF & (th == C.NEUTRAL)  # "off" neutrals (the course slots stay off) lie outside
+    assert th.shape == (16, C.D) and np.all((th >= C.LO - 1e-6) | off) and np.all((th <= C.HI + 1e-6) | off)
     box = BoxProgram()
     t = np.asarray(box.theta_unit(np.zeros(box.width, np.float32)))
     assert t[C.INDEX["command_mode"]][0] == 1.0 and box.k > K_MAX

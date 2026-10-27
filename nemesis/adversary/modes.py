@@ -11,20 +11,22 @@ import numpy as np
 from nemesis.perturb import canonical as C
 
 FAMILIES = {
-    "friction": ("foot_friction", "ice_mu", "ice_start", "ice_length"),
+    "friction": ("foot_friction", "ice_mu", "ice_start", "ice_length", "ice2_slip", "ice2_start", "ice2_length"),
     "load": ("payload_mass", "payload_offset"),
     "slope": ("slope",),
     "actuation": ("motor_strength", "joint_friction"),
     "push": ("push1_force", "push1_start", "push1_duration", "push2_force", "push2_start", "push2_duration"),
     "timing": ("latency",),
     "sensing": ("obs_noise", "joint_offset", "imu_bias", "linvel_bias"),
-    "terrain": ("stairs_height", "stairs_depth", "stairs_count", "stairs_start"),
+    "terrain": ("stairs_height", "stairs_depth", "stairs_count", "stairs_start", "stairs_landing",
+                "ramp_angle", "ramp_start", "ramp_length"),
 }
 DIRECTIONS = ("forward", "backward", "left", "right")
 OP_FAMILY = {"friction": "friction", "ice_patch": "friction", "payload": "load", "slope": "slope",
              "motor": "actuation", "joint_friction": "actuation", "push": "push", "latency": "timing",
              "sensor_noise": "sensing", "encoder_offset": "sensing", "imu_bias": "sensing",
-             "velocity_bias": "sensing", "command": None, "stairs": "terrain", "curb": "terrain"}
+             "velocity_bias": "sensing", "command": None, "stairs": "terrain", "curb": "terrain",
+             "course": "terrain"}
 
 
 def families(L=C.GO1) -> dict:
@@ -46,13 +48,17 @@ def allowed_slots(families, L=C.GO1) -> set[str]:
 
 
 def has_terrain(theta: np.ndarray, L=C.GO1) -> bool:
-    """θ puts at least one step on the ground (riser >= 1 mm, rounded count >= 1). The terrain
-    slots' neutral is 0, but stairs_depth/stairs_start are never "neutral" inside their range, so
-    this, not "a non-neutral terrain slot", says whether a scenario has terrain."""
+    """θ puts at least one step on the ground (riser >= 1 mm, rounded count >= 1) or a ramp
+    (angle >= 0.1 deg). The terrain slots' neutral is 0, but stairs_depth/stairs_start (and the
+    ramp's start/length) are never "neutral" inside their range, so this, not "a non-neutral
+    terrain slot", says whether a scenario has terrain."""
     from nemesis.perturb import terrain
     if not terrain.has_terrain(L):
         return False
-    return bool(terrain.segments(np.asarray(theta, np.float64), L, 1)[2][0])
+    th = np.asarray(theta, np.float64)
+    if terrain.segments(th, L, 2)[2][0]:  # 2 step boxes: a flight that comes back down uses both
+        return True
+    return terrain.has_course(L) and bool(terrain.ramp(th, L)[4])
 
 
 def cause_family(theta: np.ndarray, L=C.GO1) -> str:

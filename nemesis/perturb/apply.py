@@ -176,19 +176,27 @@ def _slope_down_local(theta, spec=GO1):
 # --- Time- and position-varying effects -------------------------------------------------------
 
 def terrain_mocap(theta, origin, spec=GO1):
-    """data.mocap_pos and data.mocap_quat placing the step boxes for θ and the start pose `origin`
+    """data.mocap_pos and data.mocap_quat placing the terrain boxes for θ and the start pose `origin`
     (x, y, yaw); see perturb/terrain.py. Only data changes, never the model."""
     return terrain.mocap_poses(theta, origin[:2], origin[2], C.layout(spec.robot),
                                len(spec.terrain_geoms), jp)
 
 
 def with_ice(theta, distance, spec=GO1):
-    """θ with the ice patch applied if the robot is `distance` m along its initial heading."""
+    """θ with the ice patches applied if the robot is `distance` m along its initial heading: the
+    ice patch (ice_*) and, for robots with the course slots, the second patch (friction
+    1 - ice2_slip; no patch while ice2_slip or ice2_length is 0)."""
+    L = C.layout(spec.robot)
     start, length = slot(theta, "ice_start", spec)[0], slot(theta, "ice_length", spec)[0]
     on_ice = (distance >= start) & (distance < start + length)
     mu = slot(theta, "foot_friction", spec)
     mu = jp.where(on_ice, jp.minimum(mu, slot(theta, "ice_mu", spec)[0]), mu)
-    return theta.at[C.layout(spec.robot).INDEX["foot_friction"]].set(mu)
+    if "ice2_slip" in L.INDEX:
+        slip = slot(theta, "ice2_slip", spec)[0]
+        start2, length2 = slot(theta, "ice2_start", spec)[0], slot(theta, "ice2_length", spec)[0]
+        on_ice2 = (distance >= start2) & (distance < start2 + length2) & (slip > 0)
+        mu = jp.where(on_ice2, jp.minimum(mu, 1.0 - slip), mu)
+    return theta.at[L.INDEX["foot_friction"]].set(mu)
 
 
 def push_force(theta, t, yaw=0.0, spec=GO1):

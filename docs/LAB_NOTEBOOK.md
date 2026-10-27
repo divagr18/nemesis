@@ -558,6 +558,123 @@ All strict failures (n/s/b): base 8.0 / 11.7 / 0, DR 3.7 / 7.7 / 0.
 
 **Verdict: NOT SUPPORTED** on both targets. Random programs find about 1.5–2× more plausible terrain failures than Wonder. This matches A–B on flat ground: what makes realistic failures findable is the program DSL (box CMA again finds 0), not the LLM's search. The user's hypothesis was reasonable, the test was fair, and it came out against it. The video and README must not claim that Muse is a better *searcher* on stairs. Its role stays explanation, the plain-language interface, and Autopilot's narrated investigation.
 
+## Oct 28: course from a sentence
+
+P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain hook). A sentence such as "out the door, down three small steps, across an icy driveway, up a ramp" becomes one `course` op, which compiles into θ. The shared geometry is in `nemesis/perturb/terrain.py`; physics, mp4 overlays and the replay export all use it.
+
+- **θ layout v3** (`THETA_LAYOUT_VERSION` = 3). Seven slots are appended at 67–73; 6 of the 80 stay free. Slots 0–66 are unchanged, which `test_course_slots_appended` checks by recovering the v2 hash. D stays 80, and G1's layout and hash are unchanged.
+
+  | Slot | Range | Neutral | Category |
+  |---|---|---|---|
+  | `ramp_angle` | 0–15 **degrees** | 0 = no ramp | terrain, magnitude (15° = full deviation) |
+  | `ramp_start` | 0.5–6 m | 0 = off marker | terrain, position (NOT_MAGNITUDES) |
+  | `ramp_length` | 0.5–2.2 m horizontal run | 0 = off marker | terrain, shape (NOT_MAGNITUDES) |
+  | `stairs_landing` | 1.5–3 m | 0 = the flight only goes up | terrain, shape (NOT_MAGNITUDES) |
+  | `ice2_slip` | 0–0.95, where μ = 1 − slip | 0 = no patch | friction, magnitude |
+  | `ice2_start` | 0–6 m | 0 | friction, position (NOT_MAGNITUDES, like `ice_start`) |
+  | `ice2_length` | 0–4 m | 0 | friction, magnitude (like `ice_length`) |
+
+  - Every neutral is 0, the padding value, so every older θ has no course. `normalized()` reads all seven as −1, as the padding did.
+  - **Why `ice2_slip` and not `ice2_mu`.** A μ slot whose neutral is 0 must be an "off" marker, and the strict-deviation code (`analyze`, `plausibility_cost`, `cause_family`) cannot measure magnitude from an off marker. Storing 1 − μ gives the second patch exactly the first patch's deviation, (1 − μ)/0.95, with no change to the metric code. The DSL and the export speak μ.
+  - Adding names to NOT_MAGNITUDES and FAMILIES is categorization only, as for `stairs_start`. The strict definition is unchanged.
+- **No new boxes (deviation from the plan).** First version: 10 boxes, adding a ramp box and a 6 m landing box.
+  - Old θ evaluated through the Evaluator were bit-identical except the **stairs** θ. Those differed from the first foot–step contact (step ~54, about 1.6e-5 m at first, chaotic after that).
+  - The probe showed identical box poses. With the two extra boxes made non-collidable, the rollout was bit-identical again. Cause: two more collidable geoms enlarge MJX's contact arrays and change the float rounding once a step contact is active.
+  - So the course reuses Go1's 8 step boxes. A ramp takes the last two: box 7 is the ramp, pitched by its angle, and box 6 is a 2.4 m landing. If the stairs leave box 5 free, it extends the landing to 4.8 m.
+  - A first 8 s table showed why the extension matters: with a 2.4 m landing, ramps of 5° and 10° "failed" 100% when the robot walked off the far end.
+  - Budget: stairs get up to 8 steps, or 6 with a ramp. A flight that comes back down gets 4 steps, or 3 with a ramp. The model is identical to v2 (no new geom, no new collision pair).
+- **Descent.** The flight goes up, crosses a landing `stairs_landing` m long, then comes down the same steps.
+  - Each level needs a front box at its riser up and a back box at its riser down, with higher levels hiding the middle of each box. That needs every level span ≥ box length. With 2.4 m boxes the landing would have to be ≥ 2.4 m, and the course would be out of reach in 5 s.
+  - So when descending, the boxes are stood on end (pitched 90°): 1.5 m long, 2.4 m deep. That allows landings of 1.5–3 m.
+  - A pure "start elevated and go down" is not modelled. The DSL rejects a `stairs_down` without an earlier `stairs_up`/`curb` and says to write a porch (up, then down).
+- **Ramp geometry.** The ramp box's top-face far edge sits at (start + run, run·tan α). Its near edge is under the floor, because run ≤ 2.2 m < 2.4·cos 15°.
+  - The landing's top is at the ramp height. A ramp that starts on a raised top (a curb's walkway) starts further back, so it rises out of the walkway at the cursor.
+  - Feet-only contact as before. The fall check `touches` works in each box's own frame: exact SDF for pitched boxes, including stood-on-end steps.
+  - Test: spawned at rest on an 8° ramp or on its landing, the robot stands with all four feet on that box, at standing height above the surface, and is not fallen. Spawned level instead of pitched, with Playground's random reset velocity, the passive pose tips over on the incline. That is not a geometry error: the same drift happens on a gravity-tilted slope.
+- **DSL `course` op.**
+
+  ```json
+  {"op": "course", "segments": [<segment>, ...]}
+  ```
+
+  - **Segments** (1–6 per course, discriminated by `kind`):
+    - `stairs_up` {height, count, depth = 0.3}
+    - `curb` {height}
+    - `stairs_down` {gap = null → shortest landing}
+    - `ramp` {angle (deg), length (run, ≤ 2.2)}
+    - `ice` {mu = 0.1, length}
+    - `wet` {mu = 0.3, length}
+  - **Placement:** every segment has `gap` (≥ 0), the flat distance from where the previous one ended. Stairs end at their last riser, a ramp at its top, a patch at its far edge.
+  - **Ranges:** gaps, lengths, counts and depths are fixed numbers. height, angle and mu may be [lo, hi].
+  - **Errors:** `plan_course` lays the segments out and raises clear errors for:
+    - walking off a raised top
+    - `stairs_down` without a flight
+    - more than 4 steps (3 with a ramp) up and down
+    - anything but ice/wet after a ramp
+    - a ramp rising out of a raised top with ranged height or angle
+    - out-of-envelope positions
+    - more than 2 patches (counting `ice_patch` ops)
+  - **With other ops:** a course counts as the one terrain op (no `stairs`/`curb` with it). Its first patch uses the `ice_*` slots unless the program also has an `ice_patch` op; the second patch uses `ice2_*`.
+  - The existing ops (`stairs`, `curb`, `ice_patch`, `friction`) are unchanged.
+- **Controls stay as pre-registered.** `random_program`'s template pool and seeding are unchanged; a digest of 600 programs matches `82b66cb`.
+  - Uniform θ (`random_thetas`), `envelope()` (the DR arms) and the box arm leave the course slots neutral unless `course=True`. The `random_thetas` digest and the box arm's 66 indices match.
+  - `random_course_program` adds a `course` template in a separate function.
+- **Prompts:**
+  - The slot docs give realistic values: wheelchair ramp 3–5°, steep driveway 8–12°, beyond ~15° unrealistic for a ~0.3 m hip; wet tile μ 0.25–0.4.
+  - The `course` docstring (in the JSON schema) carries the vocabulary and the headline example.
+  - The proposer prompt gains the trip thresholds from the terrain table (2–4 cm fine, 6 cm about half, 8 cm almost always) and "keep a course within ~4.5 m". At 1 m/s that is all the robot covers in a 5 s episode.
+  - The Go1 schema grew from 11.7k to 18.8k characters.
+- **Overlays/export:**
+  - mp4: concrete steps and the ramp box with an ember strip at its foot. A flight that comes back down gets strips on the risers down too. Both patches are drawn.
+  - `overlays.terrain` = `{"steps": [{x0, x1, height}], "ramps": [{x0, x1, h0, h1}], "width": 3.0}` in the start-heading frame. A flight that comes back down lists its steps down with decreasing heights. The ramps list holds the ramp (h0 = 0) and then its flat landing (h0 == h1). Both are solids from the floor up.
+  - `overlays.ice` is unchanged (the first patch). The new `overlays.ice_patches` lists every patch, the first included, with the same fields.
+- **Robot-aware export (lead's request).** `scene_assets(m, mesh_cell, robot="go1")`, `overlay_spec(m, θ, q0, robot="go1")`, `trajectory(..., robot="go1")` and `detect_fall(q, dt, robot="go1")` now read the layout, trunk, foot sites, θ-joint bodies (via actuators) and fall thresholds from the registry.
+  - Go1 output is byte-identical with and without `robot="go1"` (test).
+  - `python -m nemesis.sim.export --scene g1 --out web/public/assets/g1_scene.json --mesh-cell 0.005` gives 1216 KB (30 bodies, 63 geoms, 35 meshes). At 3 mm it was 1977 KB.
+
+### Verification (PC CPU, baseline_v2)
+- **Old θ, production Evaluator (250 steps, 16 seeds, qpos recorded), old code (`82b66cb`) vs new: bit-identical on all 36 θ.** These are the 24 attacks in `runs/serve_dev/attacks.jsonl` (one with stairs), the audit's six scenarios, and six v2 terrain scenarios (curbs 4/8 cm, stairs 3 × 6 and 5 × 8 cm, an ice patch, stairs + ice). Every output field, qpos included, has max |Δ| = 0.
+- **Fall table** (`experiments/course_check.py`): 16 seeds, forward 1 m/s. "Past the last feature" means upright and more than 0.2 m beyond its end.
+
+  | Scenario | Falls (5 s) | Progress, m | Falls by segment | Past the last feature (5 s / 8 s) | Falls (8 s) |
+  |---|---|---|---|---|---|
+  | flat | 0% | 4.56 | - | - | 0% |
+  | ramp 5°, 1 m ahead, 2 m run | 0% | 4.24 | - | 100% / 100% | 0% |
+  | ramp 10° | 6% | 3.60 | ramp 1 | 94% / 94% | 6% |
+  | ramp 15° | 100% | 1.37 | ramp 16 (median 2.65 s) | 0% | 100% |
+  | second ice patch μ 0.1, 2–4 m | 12% | 4.35 | ice 2 | 88% / 88% | 12% |
+  | porch 3 × 5 cm up and down (1.5 m landing) | 81% | 1.33 | stairs up 13 | 12% / 19% | 81% |
+  | curb 4 cm at 1 m → ice μ 0.15 at 2–3 m → ramp 8° from the curb top at 3.35 m (1.7 m) | 0% | 4.20 | - | 0% / 94% | 6% (ramp 1) |
+  | the headline: porch 3 × 5 cm → ice μ 0.08 → ramp 8° | 88% | 1.44 | stairs up 12, ice 2 | 0% / 0% | 88% |
+
+  - **Ramps:** the cliff is between 10° and 15° (15°: every seed fails on the ramp's lower half).
+  - **The porch:** three 5 cm steps trip the robot 81% of the time, consistent with "stairs 3 × 6 cm: 100%" in the terrain table.
+  - **The 3-segment course** is easy at 5 s: it is still climbing the ramp when the episode ends. Its ramp top is at 5.05 m, beyond what 5 s covers. At 8 s, 94% get over it.
+  - **The headline sentence** fails at its first segment, because the policy cannot climb three 5 cm steps. "Physics wins" is not the issue: 5 cm is a realistic step.
+  - **Episode length:** a whole headline course needs about 7 m, so 8 s episodes (400 steps) are needed to see the later segments. The server uses 250 steps.
+- **Clip:** `runs/terrain_clips/course.mp4` is the 3-segment course, seed 0, held, 5 s. It comes with `course_slowmo.mp4`, `course_frame.png`, and `course_table.json` / `course_table_8s.json`.
+- **Speed (CPU, 256 envs × 100 steps, best of 3, server running):**
+  - Old code: 5.5k (neutral) and 6.0k (stairs) steps/s.
+  - New code: 6.1k, 5.5k and 5.4k (3-segment course).
+  - These are the same within noise. The model and collision pairs are identical to v2, and the added work is a few pose and SDF terms per step. The 4060 GPU figure (104k steps/s) was not re-measured; the GPU was shared with the server.
+- **Tests:** `tests/test_course.py` has 28 tests:
+  - layout, and old θ = no course
+  - stairs poses unchanged
+  - ramp pose against MuJoCo's quaternion maths (numpy = JAX)
+  - ramp clamps
+  - descent heights (the boxes' union profile equals the export)
+  - tilted SDF, second-patch window
+  - DSL round trip of the 4-segment headline, ten error cases, program rules
+  - families/magnitudes
+  - control digests, proposer prompt
+  - export format
+  - Go1 export byte-identical with `robot=`
+  - G1 trajectory export (unit quaternions, body count, foot sites)
+  - robot standing on the ramp and on its landing
+
+  `test_robots` pins the v3 hash (`70ed6a77…`; v2 was `fef3fefa…`).
+- **Full suite on the PC's CPU:** 109 passed, plus the pre-existing failure (`test_robots.py::test_humanoid_wrapper`, pelvis 0.077 < 0.1).
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
@@ -571,3 +688,4 @@ All strict failures (n/s/b): base 8.0 / 11.7 / 0, DR 3.7 / 7.7 / 0.
 | Oct 27 | Humanoid = Unitree G1 (`G1JoystickFlatTerrain`), one padded D = 80 vector per robot, Go1 layout frozen | G1 trains in Playground with a tuned config; same vector length keeps every tool shape-compatible |
 | Oct 27 | DR arm and held-out suites use scaled envelopes (w=0.25, 0.5), not the full envelope | The full envelope is ~100% unsurvivable, so it would make a strawman baseline |
 | Oct 27 | Public page hosted only after filming (~Oct 30–31), on a g6.xlarge (L4, ~$0.80/h) at a divagr.com subdomain until the community vote closes on Nov 16. Filming uses an L40S so Patch takes ~1 min on camera. | User's call: saves cost, and nobody visits before the video is out. |
+| Oct 28 | The course reuses Go1's 8 terrain boxes (a ramp borrows the last two or three); the second ice patch is stored as `ice2_slip` = 1 − μ | Two extra collidable boxes changed MJX's float rounding for every stairs rollout (old stairs θ no longer bit-identical); an off-marker μ slot would have no plausibility magnitude |

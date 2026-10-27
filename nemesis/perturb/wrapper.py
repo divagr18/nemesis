@@ -183,8 +183,8 @@ class NemesisWrapper(pg_wrapper.Wrapper):
                 | ((g1 == floor) & jp.isin(g0, self._body_geoms)))
         touching = jp.any(body & (c.dist < 0.0)) if self._body_geoms.size else False
         if self._samples is not None and theta is not None:
-            # Steps only collide with the feet (envs.base), so a body touching a step is found
-            # geometrically: points over the body's collision geoms inside a step.
+            # Terrain boxes only collide with the feet (envs.base), so a body touching one is found
+            # geometrically: points over the body's collision geoms inside a step or ramp box.
             geom, local, radius = self._samples
             pts = data.geom_xpos[geom] + jp.einsum("pij,pj->pi", data.geom_xmat[geom], local)
             touching = touching | terrain.touches(pts, radius, theta, origin[:2], origin[2], self.layout,
@@ -253,7 +253,7 @@ class NemesisWrapper(pg_wrapper.Wrapper):
         info["command"] = A.command(theta, time, info["command"], sp)
 
         data = state.data.replace(xfrc_applied=xfrc)
-        if sp.terrain_geoms:  # stairs: move the step boxes (data only; parked when θ has none)
+        if sp.terrain_geoms:  # stairs, ramp: move the terrain boxes (data only; parked when θ has none)
             pos, quat = A.terrain_mocap(theta, origin, sp)
             mocap = jp.array(sp.terrain_mocap)
             data = data.replace(mocap_pos=data.mocap_pos.at[mocap].set(pos),

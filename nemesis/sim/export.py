@@ -2,20 +2,33 @@
 
 Two JSON documents, both CPU-only (numpy + mujoco, no JAX):
 
-  scene_assets(mj_model)              static: drawn bodies, visual geoms, meshes, floor (served once)
-  trajectory(mj_model, qpos, θ, dt)   per rollout: body poses per frame + θ overlays + fall time
+  scene_assets(mj_model, robot=)              static: drawn bodies, visual geoms, meshes, floor (served once)
+  trajectory(mj_model, qpos, θ, dt, robot=)   per rollout: body poses per frame + θ overlays + fall time
+
+`robot` ("go1" by default, or "g1") picks the θ layout, the trunk, the foot sites and the fall
+thresholds from nemesis/robots.py; Go1's output is what it was before the argument existed.
 
 Arrays are packed as {"dtype", "shape", "b64"}: little-endian raw bytes in base64, about half the
 size of rounded JSON lists and decoded in the browser with one typed-array view. Quaternions are
 MuJoCo order (w, x, y, z); positions are world frame, z up.
 
 Overlays follow nemesis/sim/overlays.py (the mp4 overlays) so both views show the same attack.
-overlays.terrain is {"steps": [{"x0", "x1", "height"}, ...], "width": 3.0} or null: solid blocks from
-the floor up to `height`, spanning x0..x1 m along the start heading from overlays.start.origin and
-`width` m across, centred on it (start-heading frame; perturb/terrain.py is the shared geometry).
+Terrain is in the start-heading frame (x = metres along the start heading from overlays.start.origin,
+heights above the floor, `width` m across centred on the heading; perturb/terrain.py is the shared
+geometry). overlays.terrain is null on flat ground, else
+  {"steps": [{"x0", "x1", "height"}, ...], "ramps": [{"x0", "x1", "h0", "h1"}, ...], "width": 3.0}
+  - steps: solid blocks from the floor up to `height`, spanning x0..x1 (a flight that comes back
+    down lists its steps down with decreasing heights).
+  - ramps: solids from the floor up to a top surface that rises linearly from h0 at x0 to h1 at x1:
+    the ramp (h0 = 0), then its flat landing (h0 == h1). Empty list when there is no ramp.
+overlays.ice is the first low-friction patch (null if none); overlays.ice_patches lists EVERY patch
+(the first one included, same fields: center, half_size, yaw, mu, start, length), so a viewer that
+knows ice_patches should draw only that list.
 
 usage:
     python -m nemesis.sim.export --sample        # writes web/dist/assets/{go1_scene,sample_traj*}.json
+    python -m nemesis.sim.export --scene g1 --out web/public/assets/g1_scene.json [--mesh-cell 0.004]
+                                                 # a robot's scene asset (loads its env: needs JAX)
 """
 
 import argparse
@@ -35,7 +48,8 @@ VERSION = 1
 TRUNK = 1
 FEET_SITES = ("FR", "FL", "RR", "RL")
 VISIBLE_GROUPS = 3  # MuJoCo's default visual options draw geom groups 0-2; collision geoms are group 3
-# Same fall test as perturb/wrapper.py (copied: importing it pulls in JAX).
+# Same fall test as perturb/wrapper.py (copied: importing it pulls in JAX). Go1's values; other
+# robots' come from nemesis/robots.py.
 MIN_HEIGHT = 0.18
 MIN_UP_Z = float(np.cos(np.deg2rad(45)))
 GEOM_TYPES = {mujoco.mjtGeom.mjGEOM_PLANE: "plane", mujoco.mjtGeom.mjGEOM_SPHERE: "sphere",
@@ -102,9 +116,10 @@ def decimate(vert: np.ndarray, face: np.ndarray, cell: float) -> tuple[np.ndarra
     return v[used], remap[f]
 
 
-def scene_assets(mj_model: mujoco.MjModel, mesh_cell: float = 0.003) -> dict:
+def scene_assets(mj_model: mujoco.MjModel, mesh_cell: float = 0.003, robot: "str | robots.Robot" = "go1") -> dict:
     """Everything static the browser needs to draw the robot and the floor. Meshes are decimated
-    to `mesh_cell` metres (see decimate) to keep the download small."""
+    to `mesh_cell` metres (see decimate) to keep the download small. `sites` holds the robot's
+    foot sites (Go1: FR FL RR RL; G1: left_foot right_foot)."""
     m = mj_model
     bodies = drawn_bodies(m)
     bidx = {b: i for i, b in enumerate(bodies)}
@@ -129,7 +144,7 @@ def scene_assets(mj_model: mujoco.MjModel, mesh_cell: float = 0.003) -> dict:
                       "type": gtype, "size": _r(m.geom_size[g]), "pos": _r(m.geom_pos[g], 5),
                       "quat": _r(m.geom_quat[g], 5), "rgba": _r(_rgba(m, g), 3), "mesh": mesh})
     sites = {}
-    for s in FEET_SITES:
+    for s in robots.get(robot).foot_sites:
         sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, s)
         if sid >= 0 and int(m.site_bodyid[sid]) in bidx:
             sites[s] = {"body": bidx[int(m.site_bodyid[sid])], "pos": _r(m.site_pos[sid], 5)}
@@ -146,8 +161,8 @@ def scene_assets(mj_model: mujoco.MjModel, mesh_cell: float = 0.003) -> dict:
     }
 
 
-def _slot(theta, name):
-    return np.asarray(theta, np.float64)[C.INDEX[name]]
+def _slot(theta, name, L=C.GO1):
+    return np.asarray(theta, np.float64)[L.INDEX[name]]
 
 
 def _rot_z(yaw):
@@ -155,65 +170,79 @@ def _rot_z(yaw):
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
-def overlay_spec(mj_model: mujoco.MjModel, theta, q0: np.ndarray) -> dict:
-    """θ as drawable things, with the semantics of overlays.py. q0 is the first qpos (start pose)."""
+def _ice(origin, heading, yaw0, mu, start, length) -> dict:
+    c = origin + heading * (start + length / 2)
+    return {"center": _r([c[0], c[1], 0.003]), "half_size": _r([length / 2, 0.9, 0.003]),
+            "yaw": round(yaw0, 5), "mu": round(mu, 3), "start": round(start, 3), "length": round(length, 3)}
+
+
+def overlay_spec(mj_model: mujoco.MjModel, theta, q0: np.ndarray, robot: "str | robots.Robot" = "go1") -> dict:
+    """θ as drawable things, with the semantics of overlays.py. q0 is the first qpos (start pose).
+    `robot` gives the θ layout, trunk, foot sites and the bodies the θ joints move."""
     m = mj_model
+    rb, L = robots.get(robot), C.layout(robot)
+    _slot_ = lambda th, name: _slot(th, name, L)  # noqa: E731
     bidx = {b: i for i, b in enumerate(drawn_bodies(m))}
     origin, yaw0 = np.asarray(q0[:2], np.float64), float(2 * np.arctan2(q0[6], q0[3]))
     heading = np.array([np.cos(yaw0), np.sin(yaw0)])
     R0 = _rot_z(yaw0)
     out = {"start": {"origin": _r(origin), "yaw": round(yaw0, 5)}, "ice": None, "slippery_feet": [],
            "payload": None, "pushes": [], "weak": [], "slope": None, "command": None, "terrain": None,
-           "conditions": C.describe(np.asarray(theta, np.float32))}
+           "conditions": L.describe(np.asarray(theta, np.float32))}
 
-    # Stairs/curb in the start-heading frame: x0/x1 along the heading from the start origin.
-    if terrain.has_terrain(C.GO1):
-        out["terrain"] = terrain.export_steps(theta, C.GO1, robots.GO1.terrain_boxes)
+    # Stairs, curbs and the course in the start-heading frame: x0/x1 along the heading from the
+    # start origin.
+    if terrain.has_terrain(L):
+        out["terrain"] = terrain.export_terrain(theta, L, rb.terrain_boxes)
 
-    ice_mu, ice_start, ice_len = (float(_slot(theta, k)[0]) for k in ("ice_mu", "ice_start", "ice_length"))
+    ice_mu, ice_start, ice_len = (float(_slot_(theta, k)[0]) for k in ("ice_mu", "ice_start", "ice_length"))
     if ice_len > 0.01 and ice_mu < 0.6:
-        c = origin + heading * (ice_start + ice_len / 2)
-        out["ice"] = {"center": _r([c[0], c[1], 0.003]), "half_size": _r([ice_len / 2, 0.9, 0.003]),
-                      "yaw": round(yaw0, 5), "mu": round(ice_mu, 3), "start": round(ice_start, 3),
-                      "length": round(ice_len, 3)}
+        out["ice"] = _ice(origin, heading, yaw0, ice_mu, ice_start, ice_len)
+    if terrain.has_course(L):
+        out["ice_patches"] = [_ice(origin, heading, yaw0, mu, start, length)
+                              for mu, start, length in terrain.ice_patches(theta, L) if length > 0.01 and mu < 0.6]
 
-    for name, mu in zip(FEET_SITES, _slot(theta, "foot_friction")):
+    for name, mu in zip(rb.foot_sites, _slot_(theta, "foot_friction")):
         sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, name)
         if mu < 0.5 and sid >= 0 and int(m.site_bodyid[sid]) in bidx:
             out["slippery_feet"].append({"site": name, "body": bidx[int(m.site_bodyid[sid])],
                                          "pos": _r(m.site_pos[sid], 5), "mu": round(float(mu), 3)})
 
-    mass = float(_slot(theta, "payload_mass")[0])
-    if mass > 0.2:
+    mass = float(_slot_(theta, "payload_mass")[0])
+    trunk = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, rb.trunk)
+    if mass > 0.2 and trunk in bidx:
         side = 0.06 * (mass / 3.0) ** (1 / 3)
-        offset = _slot(theta, "payload_offset")
-        out["payload"] = {"body": bidx[TRUNK], "pos": _r(offset + [0, 0, 0.06 + side]),
+        offset = _slot_(theta, "payload_offset")
+        out["payload"] = {"body": bidx[trunk], "pos": _r(offset + [0, 0, 0.06 + side]),
                           "half_size": _r([side * 1.3, side, side]), "mass": round(mass, 3)}
 
     for k in ("push1", "push2"):
-        t0, dur = float(_slot(theta, f"{k}_start")[0]), float(_slot(theta, f"{k}_duration")[0])
-        f = R0 @ _slot(theta, f"{k}_force")  # start-heading frame -> world, as in apply.push_force
+        t0, dur = float(_slot_(theta, f"{k}_start")[0]), float(_slot_(theta, f"{k}_duration")[0])
+        f = R0 @ _slot_(theta, f"{k}_force")  # start-heading frame -> world, as in apply.push_force
         if dur > 0 and np.linalg.norm(f) > 1.0:
             out["pushes"].append({"t0": round(t0, 4), "t1": round(t0 + dur, 4), "force": _r(f, 2),
                                   "magnitude": round(float(np.linalg.norm(f)), 2)})
 
-    strength = _slot(theta, "motor_strength")
-    for j, name in enumerate(C.JOINTS):
+    strength = _slot_(theta, "motor_strength")
+    # The body each θ joint moves (Go1's bodies are named after its joints).
+    joint_bodies = [int(m.jnt_bodyid[m.actuator_trnid[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_ACTUATOR, a), 0]])
+                    for a in rb.actuators]
+    for j, name in enumerate(L.JOINTS):
         loss = 1.0 - float(strength[j])
-        body = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, name)
+        body = joint_bodies[j]
         if loss >= 0.05 and body in bidx:
             out["weak"].append({"body": bidx[body], "name": name, "strength": round(float(strength[j]), 3),
                                 "amount": round(min(1.0, loss * 1.4), 3)})
 
-    pitch, roll = (float(v) for v in _slot(theta, "slope"))
+    pitch, roll = (float(v) for v in _slot_(theta, "slope"))
     if abs(pitch) > 1e-4 or abs(roll) > 1e-4:
         # apply.slope_down: gravity is tilted (the floor is not); the viewer tilts the world instead.
         down = R0 @ np.array([-np.sin(pitch) * np.cos(roll), np.sin(roll), -np.cos(pitch) * np.cos(roll)])
         out["slope"] = {"pitch": round(pitch, 5), "roll": round(roll, 5), "down": _r(down, 5)}
 
-    if _slot(theta, "command_mode")[0] > 0.5:
-        out["command"] = {"a": _r(_slot(theta, "command_a"), 3), "b": _r(_slot(theta, "command_b"), 3),
-                          "switch": round(float(_slot(theta, "command_switch")[0]), 3)}
+    if _slot_(theta, "command_mode")[0] > 0.5:
+        out["command"] = {"a": _r(_slot_(theta, "command_a"), 3), "b": _r(_slot_(theta, "command_b"), 3),
+                          "switch": round(float(_slot_(theta, "command_switch")[0]), 3)}
     return out
 
 
@@ -229,25 +258,31 @@ def _fill_nonfinite(qpos):
     return q
 
 
-def detect_fall(qpos: np.ndarray, dt: float) -> float | None:
-    """First time the trunk is too low or tilted past 45 deg (wrapper.fallen without contacts)."""
+def detect_fall(qpos: np.ndarray, dt: float, robot: "str | robots.Robot" = "go1") -> float | None:
+    """First time the root is too low or tilted past the robot's limit (wrapper.fallen without
+    contacts; the root's orientation stands in for the trunk's)."""
+    rb = robots.get(robot)
+    min_height = MIN_HEIGHT if rb.name == "go1" else rb.min_height
+    min_up_z = MIN_UP_Z if rb.name == "go1" else float(np.cos(np.deg2rad(rb.max_tilt_deg)))
     q = np.asarray(qpos, np.float64)
     w, x, y = q[:, 3], q[:, 4], q[:, 5]
-    up_z = 1 - 2 * (x * x + y * y)  # trunk z axis . world z
-    fell = (q[:, 2] < MIN_HEIGHT) | (up_z < MIN_UP_Z)
+    up_z = 1 - 2 * (x * x + y * y)  # root z axis . world z
+    fell = (q[:, 2] < min_height) | (up_z < min_up_z)
     return float(np.argmax(fell) * dt) if fell.any() else None
 
 
 def trajectory(mj_model: mujoco.MjModel, qpos: np.ndarray, theta, dt: float, stride: int = 2,
-               fall_time: float | None | str = "auto", label: str | None = None) -> dict:
+               fall_time: float | None | str = "auto", label: str | None = None,
+               robot: "str | robots.Robot" = "go1") -> dict:
     """Body poses for every `stride`-th frame of qpos [T, nq] (one row per `dt` seconds).
 
-    fall_time: seconds, None if the robot held, or "auto" to detect it from the trunk pose.
+    fall_time: seconds, None if the robot held, or "auto" to detect it from the root pose.
+    robot: whose θ layout, trunk, foot sites and fall thresholds to use (mj_model is that robot's).
     """
     m = mj_model
     q = _fill_nonfinite(qpos)
     if fall_time == "auto":
-        fall_time = detect_fall(q, dt)
+        fall_time = detect_fall(q, dt, robot)
     bodies = drawn_bodies(m)
     frames = range(0, len(q), stride)
     data = mujoco.MjData(m)
@@ -265,7 +300,7 @@ def trajectory(mj_model: mujoco.MjModel, qpos: np.ndarray, theta, dt: float, str
         "duration": round((len(frames) - 1) * dt * stride, 6),
         "fall_time": None if fall_time is None else round(float(fall_time), 4),
         "pos": pack(np.round(pos, 4), "float32"), "quat": pack(np.round(quat, 5), "float32"),
-        "overlays": overlay_spec(m, theta, q[0]),
+        "overlays": overlay_spec(m, theta, q[0], robot),
     }
 
 
@@ -359,12 +394,28 @@ def write_sample(out_dir: str | Path = "web/dist/assets") -> list[Path]:
     return paths
 
 
+def write_scene(robot: str, out: str | Path, mesh_cell: float = 0.003) -> Path:
+    """The robot's scene asset, from the model load_env builds (the one the evaluator renders)."""
+    from nemesis.envs.base import load_env
+    m = load_env(robot=robot)[0].unwrapped._mj_model
+    p = Path(out)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(scene_assets(m, mesh_cell, robot=robot), separators=(",", ":")), encoding="utf-8")
+    return p
+
+
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Export Go1 replay assets / a synthetic sample trajectory.")
+    ap = argparse.ArgumentParser(description="Export replay assets / a synthetic sample trajectory.")
     ap.add_argument("--sample", nargs="?", const="web/dist/assets", metavar="DIR",
                     help="write go1_scene.json + sample trajectories to DIR (default web/dist/assets)")
+    ap.add_argument("--scene", metavar="ROBOT", help="write ROBOT's scene asset to --out")
+    ap.add_argument("--out", help="output path for --scene")
+    ap.add_argument("--mesh-cell", type=float, default=0.003, help="mesh decimation cell (m) for --scene")
     args = ap.parse_args()
-    if args.sample is None:
-        ap.error("nothing to do (try --sample)")
-    for p in write_sample(args.sample):
+    if args.sample is None and args.scene is None:
+        ap.error("nothing to do (try --sample or --scene g1 --out PATH)")
+    paths = write_sample(args.sample) if args.sample is not None else []
+    if args.scene is not None:
+        paths.append(write_scene(args.scene, args.out or f"web/dist/assets/{args.scene}_scene.json", args.mesh_cell))
+    for p in paths:
         print(f"{p}  {p.stat().st_size / 1024:.1f} KB")

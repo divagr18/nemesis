@@ -1,11 +1,14 @@
 """Make perturbations visible in rendered clips (they are invisible physics otherwise).
 
-  ice patch      translucent blue slab on the floor along the start heading
+  ice patches    translucent blue slabs on the floor along the start heading (both patches)
   slippery feet  blue marker under each foot whose friction is below 0.5
   payload        crimson box on the trunk at the payload offset, sized by mass
   push           crimson arrow into the trunk while a push is active, length ~ force
   weak motors    leg segments tinted crimson in proportion to the strength lost
   stairs/curb    concrete-grey steps where θ puts them, an ember strip along each riser's top edge
+                 (a flight that comes back down: the landing, then the steps down)
+  ramp           the tilted concrete ramp box (as the physics has it) and its flat top landing, with
+                 an ember strip where the ramp leaves the floor
 
 usage:
     model, scene_fn = overlays(mj_model, theta, qpos, dt, robot="go1")
@@ -72,7 +75,8 @@ def overlays(mj_model, theta, qpos: np.ndarray, dt: float, robot: "str | robots.
     origin, yaw0 = q0[:2], 2 * np.arctan2(q0[6], q0[3])
     heading = np.array([np.cos(yaw0), np.sin(yaw0)])
     R0 = _rot_z(yaw0)
-    ice_mu, ice_start, ice_len = (float(_s(k)[0]) for k in ("ice_mu", "ice_start", "ice_length"))
+    patches = [(mu, start, length) for mu, start, length in terrain.ice_patches(theta, L)
+               if length > 0.01 and mu < 0.6]
     mu = _s("foot_friction")
     mass = float(_s("payload_mass")[0])
     offset = _s("payload_offset")
@@ -90,18 +94,42 @@ def overlays(mj_model, theta, qpos: np.ndarray, dt: float, robot: "str | robots.
     # Stairs: drawn from θ as non-overlapping blocks (the physics boxes are hidden mocap boxes
     # that overlap below each step's top), with an ember strip along each riser's top edge.
     steps = []
+    half_w = terrain.STEP_WIDTH / 2
     if terrain.has_terrain(L):
-        for x0, x1, h in terrain.columns(theta, L, robots.get(robot).terrain_boxes):
-            mid, nose = origin + heading * (x0 + x1) / 2, origin + heading * (x0 + NOSING - 0.001)
-            half_w = terrain.STEP_WIDTH / 2
-            steps.append(([(x1 - x0) / 2, half_w, h / 2], [mid[0], mid[1], h / 2], CONCRETE))
-            steps.append(([NOSING, half_w + 0.001, 0.004], [nose[0], nose[1], h - 0.003], EMBER))
+        cols = terrain.columns(theta, L, robots.get(robot).terrain_boxes)
+        for k, (x0, x1, h) in enumerate(cols):
+            mid = origin + heading * (x0 + x1) / 2
+            steps.append(([(x1 - x0) / 2, half_w, h / 2], [mid[0], mid[1], h / 2], R0, CONCRETE))
+            if k == 0 or h > cols[k - 1][2]:  # a riser up: ember strip along its top edge
+                nose = origin + heading * (x0 + NOSING - 0.001)
+            else:  # a riser down: the strip runs along the edge of the step above it
+                nose = origin + heading * (x0 - NOSING + 0.001)
+                h = cols[k - 1][2]
+            steps.append(([NOSING, half_w + 0.001, 0.004], [nose[0], nose[1], h - 0.003], R0, EMBER))
+        if terrain.descends(np.asarray(theta, np.float64), L) and cols:  # the last riser down
+            x0, h = cols[-1][1], cols[-1][2]
+            nose = origin + heading * (x0 - NOSING + 0.001)
+            steps.append(([NOSING, half_w + 0.001, 0.004], [nose[0], nose[1], h - 0.003], R0, EMBER))
+    if terrain.has_course(L):
+        for x0, x1, h0, h1 in terrain.ramps(theta, L, robots.get(robot).terrain_boxes):
+            if h1 > h0:  # the ramp: the physics box itself (its lower part is under the floor)
+                a = np.arctan2(h1 - h0, x1 - x0)
+                hx, _, hz = terrain.BOX
+                cx, cz = x1 - hx * np.cos(a) + hz * np.sin(a), h1 - hx * np.sin(a) - hz * np.cos(a)
+                c = origin + heading * cx
+                Ry = np.array([[np.cos(a), 0, -np.sin(a)], [0, 1, 0], [np.sin(a), 0, np.cos(a)]])
+                steps.append((list(terrain.BOX), [c[0], c[1], cz], R0 @ Ry, CONCRETE))
+                foot = origin + heading * (x0 + NOSING)
+                steps.append(([NOSING, half_w + 0.001, 0.004], [foot[0], foot[1], 0.004], R0, EMBER))
+            else:  # its landing, a block from the floor
+                mid = origin + heading * (x0 + x1) / 2
+                steps.append(([(x1 - x0) / 2, half_w, h1 / 2], [mid[0], mid[1], h1 / 2], R0, CONCRETE))
 
     def scene_fn(scene, data, t):
         time = t * dt
-        for size, pos, rgba in steps:
-            _add(scene, mujoco.mjtGeom.mjGEOM_BOX, size, pos, R0, rgba)
-        if ice_len > 0.01 and ice_mu < 0.6:
+        for size, pos, mat, rgba in steps:
+            _add(scene, mujoco.mjtGeom.mjGEOM_BOX, size, pos, mat, rgba)
+        for _, ice_start, ice_len in patches:
             center = origin + heading * (ice_start + ice_len / 2)
             _add(scene, mujoco.mjtGeom.mjGEOM_BOX, [ice_len / 2, 0.9, 0.003],
                  [center[0], center[1], 0.003], R0, ICE)

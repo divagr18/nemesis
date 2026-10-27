@@ -50,7 +50,7 @@ def vision_model() -> str:
 BASE_ENV = "Go1JoystickFlatTerrain"
 # Playground's Go1 default is "warp"; pinned to "jax" until benchmarked (PLAN 1.2).
 SIM_IMPL = os.environ.get("NEMESIS_IMPL", "jax")
-THETA_LAYOUT_VERSION = 2  # 2: terrain slots (stairs_*) appended for Go1, Oct 27
+THETA_LAYOUT_VERSION = 3  # 2: terrain slots (stairs_*) appended for Go1, Oct 27; 3: course slots (ramp, descent, ice2), Oct 28
 
 
 @dataclass(frozen=True)

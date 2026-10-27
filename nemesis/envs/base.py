@@ -72,11 +72,12 @@ def _steps_like_floor(m: mujoco.MjModel, r: robots.Robot) -> None:
 
 
 def _add_terrain(spec, r: robots.Robot) -> None:
-    """Adds r.terrain_boxes step boxes on mocap bodies, parked under the floor (the wrapper moves
-    them through data.mocap_pos; see perturb/terrain.py).
+    """Adds r.terrain_boxes terrain boxes on mocap bodies, parked under the floor (the wrapper moves
+    them through data.mocap_pos/quat; see perturb/terrain.py): stairs, curbs, and a ramp with
+    its landing (all the same size, terrain.box_sizes).
 
     The bodies come after the robot's, so no robot body or geom id moves (world geoms would
-    precede the robot's). Every box has the same fixed size: placing stairs changes only data,
+    precede the robot's). Every box has a fixed size: placing terrain changes only data,
     never a model field, so the jitted physics stays the same program as without terrain.
     Only the feet collide with them (contype bit 2, see _steps_like_floor): MJX's capsule-box and
     box-box collision functions would make every step ~5x slower (216 contacts instead of 24), so
@@ -84,12 +85,12 @@ def _add_terrain(spec, r: robots.Robot) -> None:
     which ends the episode the same way. The floor (contype 1, conaffinity 0) never collides with
     them. Hidden (group 3): renderers draw the steps from θ (overlays, export).
     """
-    for i in range(r.terrain_boxes):
+    for i, size in enumerate(terrain.box_sizes(r.terrain_boxes)):
         body = spec.worldbody.add_body(name=robots.terrain_body(i), mocap=True,
                                        pos=list(terrain.PARK_POS))
         body.add_geom(name=robots.terrain_geom(i), type=mujoco.mjtGeom.mjGEOM_BOX,
-                      size=list(terrain.BOX), contype=STEP_CONTYPE, conaffinity=0, condim=3, mass=0, group=3,
-                      rgba=list(STEP_RGBA))
+                      size=[float(v) for v in size], contype=STEP_CONTYPE, conaffinity=0, condim=3, mass=0,
+                      group=3, rgba=list(STEP_RGBA))
 
 
 def _rebuild(raw, r: robots.Robot):

@@ -13,6 +13,7 @@ from nemesis.perturb import terrain as T
 
 SIM = pytest.mark.skipif(os.environ.get("NEMESIS_SKIP_SIM"), reason="needs MJX")
 K = robots.GO1.terrain_boxes
+KS = K  # the stairs have every box when there is no ramp
 
 
 def theta_with(**slots):
@@ -37,7 +38,7 @@ def test_layout_prefix_unchanged():
     assert h.hexdigest() == "d88ee53ae3f3b353e4792dfd5f1f3d86e620ef55a83e46536c0b2b9051f282b7"
     assert [(n, C.INDEX[n].start) for n in T.SLOTS] == [
         ("stairs_height", 63), ("stairs_depth", 64), ("stairs_count", 65), ("stairs_start", 66)]
-    assert np.all(C.NEUTRAL[63:] == 0) and np.all(C.LO[67:] == 0) and np.all(C.HI[67:] == 0)
+    assert np.all(C.NEUTRAL[63:] == 0) and np.all(C.LO[74:] == 0) and np.all(C.HI[74:] == 0)  # 67-73: the course
     assert [n for n in T.SLOTS if C.SLOT[n].neutral_off] == ["stairs_depth", "stairs_start"]
     assert "stairs_height" not in C.layout("g1").INDEX  # G1: no terrain yet
 
@@ -61,7 +62,7 @@ def test_zero_padding_means_flat_ground():
 
 def test_stairs_placement():
     th = stairs(h=0.08, d=0.3, n=3, start=1.0)
-    x0, top, used = T.segments(th.astype(np.float64), C.GO1, K)
+    x0, top, used = T.segments(th.astype(np.float64), C.GO1, KS)
     assert used.tolist() == [True] * 3 + [False] * 5
     np.testing.assert_allclose(x0[:3], [1.0, 1.3, 1.6])
     np.testing.assert_allclose(top[:3], [0.08, 0.16, 0.24])
@@ -73,7 +74,7 @@ def test_stairs_placement():
     pos, quat = T.mocap_poses(th.astype(np.float64), np.array([1.0, 2.0]), yaw, C.GO1, K)
     np.testing.assert_allclose(pos[1], [1.0, 2.0 + 1.3 + T.BOX[0], 0.16 - T.BOX[2]], atol=1e-6)
     np.testing.assert_allclose(quat[1], [np.cos(yaw / 2), 0, 0, np.sin(yaw / 2)], atol=1e-6)
-    np.testing.assert_allclose(pos[3:], np.tile(T.PARK_POS, (5, 1)))
+    np.testing.assert_allclose(pos[3:], np.tile(T.PARK_POS, (K - 3, 1)))  # the ramp boxes too
     assert np.all(pos[:3, 2] + T.BOX[2] - 2 * T.BOX[2] < 0)  # every box reaches below the floor
     # The same function traced by JAX (what the wrapper uses) gives the same poses.
     import jax.numpy as jp
@@ -83,20 +84,20 @@ def test_stairs_placement():
 
 
 def test_tallest_stairs_stay_buried():
-    _, top, used = T.segments(stairs(h=0.15, d=0.2, n=8).astype(np.float64), C.GO1, K)
+    _, top, used = T.segments(stairs(h=0.15, d=0.2, n=8).astype(np.float64), C.GO1, KS)
     assert used.all() and top.max() - 2 * T.BOX[2] < 0
 
 
 @pytest.mark.parametrize("count, h, expect", [(0.4, 0.1, 0), (0.6, 0.1, 1), (2.6, 0.1, 3), (8.0, 0.1, 8),
                                               (5.0, 0.0005, 0)])
 def test_count_rounds_and_tiny_risers_are_flat(count, h, expect):
-    _, _, used = T.segments(stairs(h=h, n=count).astype(np.float64), C.GO1, K)
+    _, _, used = T.segments(stairs(h=h, n=count).astype(np.float64), C.GO1, KS)
     assert int(used.sum()) == expect
 
 
 def test_depth_and_start_are_clamped():
     """A hand-made θ with height but the "off" depth/start still yields valid boxes."""
-    x0, _, used = T.segments(theta_with(stairs_height=0.1, stairs_count=2).astype(np.float64), C.GO1, K)
+    x0, _, used = T.segments(theta_with(stairs_height=0.1, stairs_count=2).astype(np.float64), C.GO1, KS)
     np.testing.assert_allclose(x0[:2], [0.5, 0.7])
     assert used[:2].all() and used.sum() == 2
 
@@ -153,7 +154,7 @@ def test_dsl_round_trip():
 def test_terrain_family_and_magnitudes():
     from nemesis.adversary.cmaes import NOT_MAGNITUDES, plausibility_cost
     from nemesis.adversary.modes import FAMILIES, OP_FAMILY, allowed_slots, cause_family, has_terrain
-    assert OP_FAMILY["stairs"] == OP_FAMILY["curb"] == "terrain" and set(FAMILIES["terrain"]) == set(T.SLOTS)
+    assert OP_FAMILY["stairs"] == OP_FAMILY["curb"] == "terrain" and set(T.SLOTS) <= set(FAMILIES["terrain"])
     assert {"stairs_depth", "stairs_start"} <= set(NOT_MAGNITUDES)
     assert "stairs_height" not in NOT_MAGNITUDES and "stairs_count" not in NOT_MAGNITUDES
     curb = stairs(h=0.1, d=0.3, n=1, start=1.0)
@@ -210,7 +211,7 @@ def test_export_terrain_format():
     ov = E.trajectory(m, q, stairs(h=0.06, d=0.25, n=3, start=1.0), 0.02)["overlays"]
     assert ov["terrain"] == {"steps": [{"x0": 1.0, "x1": 1.25, "height": 0.06},
                                        {"x0": 1.25, "x1": 1.5, "height": 0.12},
-                                       {"x0": 1.5, "x1": 3.9, "height": 0.18}], "width": 3.0}
+                                       {"x0": 1.5, "x1": 3.9, "height": 0.18}], "width": 3.0, "ramps": []}
     json.dumps(ov)
 
 

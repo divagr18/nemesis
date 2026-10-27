@@ -34,7 +34,13 @@ How to attack well:
 - Combine primitives in time and space: command reversals, pushes timed during a turn, ice patches
   the robot walks onto, sensor biases while carrying load.
 - Terrain counts too: a curb or a short flight of steps placed across the robot's path, alone or
-  with other conditions. The policy has only ever walked on flat ground, and its hip is ~0.3 m high.
+  with other conditions. The policy has only ever walked on flat ground, and its hip is ~0.3 m high:
+  it walks over 2-4 cm thresholds, trips on about half of 6 cm curbs and almost always on 8 cm.
+- A whole route is one `course` op: ordered segments along the heading (stairs_up, stairs_down,
+  curb, ramp, ice, wet), each starting `gap` m after the previous one ends. Realistic values: steps
+  0.03-0.08 m (a 0.15 m household riser is half its hip height), ramps 3-12 degrees (15 at most),
+  ice mu 0.05-0.15, wet tile 0.25-0.4. Keep a course within ~4.5 m: that is how far the robot walks
+  in one 5 s episode at 1 m/s.
 - Do not repeat programs that already failed to break the robot, and do not re-find a failure
   family that is already in the archive unless you have a sharper hypothesis about it.
 

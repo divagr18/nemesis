@@ -63,8 +63,9 @@ class Robot:
     push_note: str = "60-120 N for 0.1 s is a strong shove"
     # Base domain randomization (Playground-equivalent).
     dr_frictionloss: tuple = (0.9, 1.1)
-    # Terrain: number of static step boxes envs.base adds to the scene for stairs and curbs
-    # (0 = flat ground only, and the θ layout has no terrain slots). See apply.terrain_boxes.
+    # Terrain: number of mocap boxes envs.base adds to the scene for stairs, curbs and the course
+    # (0 = flat ground only, and the θ layout has no terrain or course slots). A ramp borrows the
+    # last two (perturb/terrain.py).
     terrain_boxes: int = 0
     hip_height: float = 0.3       # standing hip height (slot docs: how big a step is for this robot)
 
@@ -150,12 +151,12 @@ def for_env(env_name: str) -> Robot:
 
 
 def terrain_body(i: int) -> str:
-    """Name of the i-th step box's mocap body (envs.base adds them after the robot's bodies)."""
+    """Name of the i-th terrain box's mocap body (envs.base adds them after the robot's bodies)."""
     return f"nemesis_terrain{i}"
 
 
 def terrain_geom(i: int) -> str:
-    """Name of the i-th step box geom."""
+    """Name of the i-th terrain box geom (a ramp uses the last two: landing, ramp)."""
     return f"nemesis_step{i}"
 
 
@@ -215,7 +216,7 @@ def resolve(robot: "str | Robot", m, body_geoms=()) -> Spec:
 
 # Go1's ids in Playground's Go1 Joystick model (what the pipeline hardcoded before the registry);
 # tests check that resolve() reproduces them. Used as the default when no env is at hand.
-# load_env appends 8 mocap bodies (ids 14-21) with one step box each (geoms 51-58) after the
+# load_env appends 8 mocap bodies (ids 14-21) with one terrain box each (geoms 51-58) after the
 # robot, so no robot id moves.
 GO1_SPEC = Spec(
     robot=GO1, trunk=1, floor=0, foot_geoms=(15, 26, 38, 50), foot_pairs=(),

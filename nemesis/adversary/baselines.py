@@ -6,6 +6,11 @@
   and parameters chosen blindly, each field searched over its full envelope.
 All share the evaluator and the fitness of cmaes.py, and are charged env steps the same way.
 Every function takes the robot (default Go1), whose θ layout and nominal task it uses.
+
+The course slots (ramp, descent, second ice patch; layout v3, Oct 28) are left out of the uniform
+draws, the envelope and the box arm unless `course=True`, and random_program's template pool and
+seeding are unchanged, so the controls draw exactly what they drew before the course existed (the
+pre-registered H-S runs depend on it). random_course_program adds course programs to the pool.
 """
 
 import random
@@ -15,6 +20,7 @@ import numpy as np
 
 from nemesis import robots
 from nemesis.perturb import canonical as C
+from nemesis.perturb import terrain as T
 from nemesis.perturb.dsl import K_MAX, compile_program, language
 
 # Default task for programs without a command op. The command profile itself is searchable by
@@ -38,7 +44,16 @@ def _task_theta(robot="go1") -> np.ndarray:
     return th
 
 
-def envelope(width: float = 1.0, robot="go1") -> tuple[np.ndarray, np.ndarray]:
+def _drop_course(L, lo, hi, course: bool):
+    """Pins the course slots to neutral unless `course` (see the module docstring)."""
+    if not course:
+        for name in T.COURSE_SLOTS:
+            if name in L.INDEX:
+                lo[L.INDEX[name]] = hi[L.INDEX[name]] = L.NEUTRAL[L.INDEX[name]]
+    return lo, hi
+
+
+def envelope(width: float = 1.0, robot="go1", course: bool = False) -> tuple[np.ndarray, np.ndarray]:
     """(lo, hi) of the envelope scaled toward nominal: width 1 is the full physical envelope,
     width 0.25 keeps each slot within a quarter of its range around nominal. The command
     profile always spans its full range (it is the task, not a perturbation), and so do slots
@@ -53,18 +68,21 @@ def envelope(width: float = 1.0, robot="go1") -> tuple[np.ndarray, np.ndarray]:
         lo[sl], hi[sl] = L.LO[sl], L.HI[sl]
     sl = L.INDEX["command_mode"]
     lo[sl] = hi[sl] = 1.0
+    lo, hi = _drop_course(L, lo, hi, course)
     return lo.astype(np.float32), hi.astype(np.float32)
 
 
 def random_thetas(n: int, rng: np.random.Generator, width: float = 1.0, families=None,
-                  robot="go1") -> np.ndarray:
+                  robot="go1", course: bool = False) -> np.ndarray:
     """Uniform over the (scaled) envelope, including the command profile; slots outside the allowed
-    families stay nominal."""
+    families (and the course slots, unless `course`) stay nominal."""
     from nemesis.adversary.modes import allowed_slots
     L = C.layout(robot)
-    lo, hi = envelope(width, robot)
+    lo, hi = envelope(width, robot, course)
     th = rng.uniform(lo, hi, size=(n, C.D)).astype(np.float32)
     keep = allowed_slots(families, L)
+    if not course:
+        keep = keep - set(T.COURSE_SLOTS)
     for s in L.SLOTS:
         if s.name not in keep:
             th[:, L.INDEX[s.name]] = L.NEUTRAL[L.INDEX[s.name]]
@@ -74,10 +92,12 @@ def random_thetas(n: int, rng: np.random.Generator, width: float = 1.0, families
 class BoxProgram:
     """Searches every non-task θ slot directly (full-union CMA); quacks like dsl.Compiled."""
 
-    def __init__(self, families=None, robot="go1"):
+    def __init__(self, families=None, robot="go1", course: bool = False):
         from nemesis.adversary.modes import allowed_slots
         L = self.layout = C.layout(robot)
         keep = allowed_slots(families, L)
+        if not course:  # see the module docstring
+            keep = keep - set(T.COURSE_SLOTS)
         self.idx = np.array([i for s in L.SLOTS if s.name not in TASK_SLOTS and s.name in keep
                              for i in range(L.INDEX[s.name].start, L.INDEX[s.name].stop)])
         self.base = _task_theta(robot)
@@ -157,6 +177,54 @@ def random_program(n_ops: int, seed: int, families=None, robot="go1"):
     while True:
         ops = [task] + [{"op": op, **templates[op](r)} for op in r.sample(pool, n_ops)]
         try:  # invalid: e.g. both stairs and curb drawn (one terrain op per program)
+            p = Program.model_validate({"name": f"shuffled_{seed}", "hypothesis": "random control", "ops": ops})
+            if compile_program(p, robot).k <= K_MAX:
+                return p
+        except ValueError:
+            pass
+        n_ops = max(1, n_ops - (r.random() < 0.3))
+
+
+def _course_template(r: random.Random) -> dict:
+    """A random buildable course (dsl.plan_course rules): a shape drawn from a fixed list, fixed
+    positions, and the magnitudes (step height, ramp angle, patch mu) searched over their full
+    envelope where the shape allows it."""
+    shape = r.choice([("curb",), ("stairs_up",), ("stairs_up", "stairs_down"), ("ramp",), ("ice", "ramp"),
+                      ("curb", "ice"), ("stairs_up", "stairs_down", "ice"), ("ice", "wet"),
+                      ("curb", "ramp"), ("stairs_up", "stairs_down", "ramp")])
+    segs = []
+    fixed = "ramp" in shape and shape[0] in ("curb", "stairs_up") and "stairs_down" not in shape
+    for kind in shape:
+        gap = round(r.uniform(0.5, 1.5), 2) if not segs else round(r.uniform(0.0, 0.5), 2)
+        if kind == "curb":
+            segs.append({"kind": "curb", "gap": gap, "height": round(r.uniform(0.02, 0.12), 3) if fixed else [0.0, 0.15]})
+        elif kind == "stairs_up":
+            segs.append({"kind": "stairs_up", "gap": gap, "height": [0.0, 0.15], "depth": round(r.uniform(0.2, 0.4), 2),
+                         "count": r.randint(1, 4)})
+        elif kind == "stairs_down":
+            segs.append({"kind": "stairs_down"})
+        elif kind == "ramp":
+            segs.append({"kind": "ramp", "gap": gap, "angle": round(r.uniform(2, 15), 1) if fixed else [0.1, 15.0],
+                         "length": round(r.uniform(0.8, 2.5), 2)})
+        else:
+            segs.append({"kind": kind, "gap": gap, "mu": [0.05, 1.0], "length": round(r.uniform(0.5, 2.0), 2)})
+    return {"segments": segs}
+
+
+def random_course_program(n_ops: int, seed: int, families=None, robot="go1"):
+    """random_program with a `course` template added to the pool (robots with terrain). A separate
+    function so random_program's pool and seeding stay as pre-registered."""
+    from nemesis.adversary.modes import OP_FAMILY
+    rb = robots.get(robot)
+    templates = _templates(robot) | ({"course": _course_template} if rb.terrain_boxes else {})
+    task = FORWARD if rb.name == "go1" else forward(robot)
+    Program = language(robot).Program
+    r = random.Random(seed)
+    pool = [op for op in templates if families is None or OP_FAMILY[op] in families]
+    n_ops = min(n_ops, len(pool))
+    while True:
+        ops = [task] + [{"op": op, **templates[op](r)} for op in r.sample(pool, n_ops)]
+        try:  # invalid: e.g. a course drawn with stairs or curb (one terrain op per program)
             p = Program.model_validate({"name": f"shuffled_{seed}", "hypothesis": "random control", "ops": ops})
             if compile_program(p, robot).k <= K_MAX:
                 return p

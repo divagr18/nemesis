@@ -27,10 +27,11 @@ def _layout_hash(L) -> str:
 
 def test_go1_layout_is_frozen():
     """Existing checkpoints, gauntlets and atlases depend on Go1's θ layout. Version 2 (Oct 27)
-    appended the 4 terrain slots after the original 63 (hash fdbcd0f6... before); the first 63
-    slots are pinned by tests/test_terrain.py::test_layout_prefix_unchanged."""
-    assert _layout_hash(C.GO1) == "fef3fefabcf442d671fb04fb366d734f3bceedc84eb685d50524cbe7126fdbd2"
-    assert C.D == 80 and C.USED == 67 and C.layout("go1") is C.GO1
+    appended the 4 terrain slots after the original 63 (hash fdbcd0f6... before), version 3
+    (Oct 28) the 7 course slots after those (hash fef3fefa... before); the earlier slots are pinned
+    by tests/test_terrain.py::test_layout_prefix_unchanged and tests/test_course.py."""
+    assert _layout_hash(C.GO1) == "70ed6a776ab48976cf89ddb2db74aa6ca385062abf141b4236cf3186788f743f"
+    assert C.D == 80 and C.USED == 74 and C.layout("go1") is C.GO1
     # G1 has no terrain yet: its layout is unchanged.
     assert _layout_hash(G1) == "1177946dca094cd942b4e42afa3f513b745a765082826a597ba6e2dee863abbc"
     assert C.INDEX is C.GO1.INDEX and C.JOINTS[0] == "FR_hip" and C.FEET == ("FR", "FL", "RR", "RL")
@@ -44,7 +45,9 @@ def test_humanoid_layout():
     assert G1.SLOT["foot_friction"].neutral == 0.6  # G1's foot-floor pair friction
     assert G1.SLOT["push1_force"].hi == robots.G1.push_max
     assert np.isfinite(G1.normalized(G1.NEUTRAL)).all()
-    assert [s.name for s in G1.SLOTS] == [s.name for s in C.SLOTS if not s.name.startswith("stairs_")]
+    from nemesis.perturb import terrain
+    assert [s.name for s in G1.SLOTS] == [s.name for s in C.SLOTS if not s.name.startswith("stairs_")
+                                          and s.name not in terrain.COURSE_SLOTS]
 
 
 def test_robot_lookup():
