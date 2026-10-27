@@ -587,6 +587,7 @@ def vertical_clip(attack_id: str):
 # ---- looping GIF of the fall (for X posts) -----------------------------------------------------------
 
 GIF_W, GIF_FPS, GIF_BEFORE, GIF_AFTER = 720, 15, 2.2, 1.4  # seconds around the fall
+GIF_REV = "2"  # whole-frame palette, so the labels keep their colours
 
 
 def _gif_labels(r: dict, w: int, h: int):
@@ -613,7 +614,7 @@ def gif(r: dict, clip: Path, path: Path):
     try:
         top.save(work / "labels.png")
         graph = (f"[0:v]fps={GIF_FPS},scale={GIF_W}:{gh}:flags=lanczos[v];[v][1:v]overlay=0:0,split[a][b];"
-                 f"[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4")
+                 f"[a]palettegen=max_colors=128:stats_mode=full[p];[b][p]paletteuse=dither=bayer:bayer_scale=4")
         cmd = [_ffmpeg(), "-v", "error", "-y", "-ss", f"{start:.2f}", "-t", f"{GIF_BEFORE + GIF_AFTER:.2f}",
                "-i", str(clip), "-i", str(work / "labels.png"), "-filter_complex", graph, "-loop", "0", "-f", "gif"]
 
@@ -629,7 +630,7 @@ def gif(r: dict, clip: Path, path: Path):
 @router.get("/g/{attack_id}.gif")
 def fall_gif(attack_id: str):
     r = _attack(attack_id)
-    path = _cache_dir() / f"{attack_id}.fall{RENDER_REV}.gif"
+    path = _cache_dir() / f"{attack_id}.fall{RENDER_REV}.{GIF_REV}.gif"
     with _lock(f"gif:{attack_id}"):
         if not path.exists():
             clip = _clip(r)
