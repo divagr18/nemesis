@@ -189,22 +189,113 @@
   "D2": "NOT SUPPORTED",
   "D3": "SUPPORTED"
  },
- "E": {
-  "0.25": [
-   0.11177884615384616,
-   0.09735576923076923,
-   0.09375
-  ],
-  "0.5": [
-   0.06370192307692307,
-   0.0625,
-   0.051682692307692304
-  ],
-  "1.0": [
-   0.11538461538461539,
-   0.11778846153846154,
-   0.1466346153846154
-  ]
+ "S": {
+  "base": {
+   "nemesis": [
+    {
+     "strict": 9,
+     "terrain": 5,
+     "terrain_modes": 3
+    },
+    {
+     "strict": 8,
+     "terrain": 3,
+     "terrain_modes": 2
+    },
+    {
+     "strict": 7,
+     "terrain": 1,
+     "terrain_modes": 1
+    }
+   ],
+   "shuffled": [
+    {
+     "strict": 11,
+     "terrain": 3,
+     "terrain_modes": 3
+    },
+    {
+     "strict": 12,
+     "terrain": 6,
+     "terrain_modes": 3
+    },
+    {
+     "strict": 12,
+     "terrain": 4,
+     "terrain_modes": 2
+    }
+   ],
+   "box": [
+    {
+     "strict": 0,
+     "terrain": 0,
+     "terrain_modes": 0
+    },
+    {
+     "strict": 0,
+     "terrain": 0,
+     "terrain_modes": 0
+    },
+    {
+     "strict": 0,
+     "terrain": 0,
+     "terrain_modes": 0
+    }
+   ]
+  },
+  "dr": {
+   "nemesis": [
+    {
+     "strict": 2,
+     "terrain": 2,
+     "terrain_modes": 1
+    },
+    {
+     "strict": 5,
+     "terrain": 3,
+     "terrain_modes": 3
+    },
+    {
+     "strict": 4,
+     "terrain": 2,
+     "terrain_modes": 2
+    }
+   ],
+   "shuffled": [
+    {
+     "strict": 6,
+     "terrain": 4,
+     "terrain_modes": 2
+    },
+    {
+     "strict": 7,
+     "terrain": 5,
+     "terrain_modes": 3
+    },
+    {
+     "strict": 10,
+     "terrain": 5,
+     "terrain_modes": 3
+    }
+   ],
+   "box": [
+    {
+     "strict": 0,
+     "terrain": 0,
+     "terrain_modes": 0
+    },
+    {
+     "strict": 0,
+     "terrain": 0,
+     "terrain_modes": 0
+    },
+    {
+     "strict": 0,
+     "terrain": 0,
+     "terrain_modes": 0
+    }
+   ]
+  }
  },
- "E_verdict": true
+ "S_verdict": "NOT SUPPORTED"
 }

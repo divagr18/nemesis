@@ -51,13 +51,12 @@ Strict modes:
 **H-D2 (history helps):** NOT SUPPORTED
 **H-D3 (Glimmer ≥ 50% of Wonder):** SUPPORTED
 
-## E: DR envelope width (fall rate on hand-written + realistic gauntlet)
+## S: terrain (strict terrain failures, mean [per seed])
 
-| w | per seed | mean |
-|---|---|---|
-| 0.25 | 0.112, 0.097, 0.094 | 0.101 |
-| 0.5 | 0.064, 0.062, 0.052 | 0.059 |
-| 1.0 | 0.115, 0.118, 0.147 | 0.127 |
+| Target | nemesis | shuffled | box | all strict (n/s/b) |
+|---|---|---|---|---|
+| base | 3.0 [5, 3, 1] | 4.3 [3, 6, 4] | 0.0 [0, 0, 0] | 8.0 [9, 8, 7] / 11.7 [11, 12, 12] / 0.0 [0, 0, 0] |
+| dr | 2.3 [2, 3, 2] | 4.7 [4, 5, 5] | 0.0 [0, 0, 0] | 3.7 [2, 5, 4] / 7.7 [6, 7, 10] / 0.0 [0, 0, 0] |
 
-**H-E verdict:** SUPPORTED (both widths outside and above the w=0.5 seed range)
+**H-S verdict:** NOT SUPPORTED (base: NOT SUPPORTED; dr: NOT SUPPORTED)
 

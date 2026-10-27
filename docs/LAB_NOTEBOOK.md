@@ -542,6 +542,22 @@ P11 (Go1 only; the G1 gets it later through the same registry hook, `Robot.terra
 - **Tests:** `tests/test_terrain.py` (20 tests): layout prefix, zero padding = flat, placement math (numpy = JAX), rounding/clamping, exact SDF, DSL round trip, families and plausibility, strict metric, controls, export format, rebuild keeps every robot model field, steps are data not model, stand on a step, body on a step = fall. The Go1 layout-hash test now pins v2 (`fef3fefa…`; v1 was `fdbcd0f6…`), and G1's hash is pinned unchanged.
 - **Full suite on the PC's CPU:** 81 passed, plus 1 failure that predates this work (`test_robots.py::test_humanoid_wrapper`, G1 pelvis height 0.077 < 0.1).
 
+## Oct 27: H-S (terrain), pre-registered: NOT SUPPORTED
+
+The question (pre-registered in `dc9344c`, before any terrain code existed): does Muse beat random programs at finding realistic failures on stairs and curbs?
+
+- **Setup:** 18 attack-only runs (nemesis / shuffled / box × 3 seeds × base and DR-trained targets) at 10M attack steps, on 5 AWS boxes, code `7305727`.
+- **Incident:** five DR-target runs died with empty logs when I stopped a stalled fleet-setup task that was still installing packages. They were relaunched with START/EXIT markers; all 18 completed.
+
+| Strict terrain failures, mean [per seed] | nemesis | shuffled (random programs) | box (flat CMA) |
+|---|---|---|---|
+| untrained (`baseline_v2`) | 3.0 [5, 3, 1] | **4.3** [3, 6, 4] | 0 |
+| DR-trained | 2.3 [2, 3, 2] | **4.7** [4, 5, 5] | 0 |
+
+All strict failures (n/s/b): base 8.0 / 11.7 / 0, DR 3.7 / 7.7 / 0.
+
+**Verdict: NOT SUPPORTED** on both targets. Random programs find about 1.5–2× more plausible terrain failures than Wonder. This matches A–B on flat ground: what makes realistic failures findable is the program DSL (box CMA again finds 0), not the LLM's search. The user's hypothesis was reasonable, the test was fair, and it came out against it. The video and README must not claim that Muse is a better *searcher* on stairs. Its role stays explanation, the plain-language interface, and Autopilot's narrated investigation.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
