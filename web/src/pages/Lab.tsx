@@ -249,6 +249,7 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
           </p>
         </div>
       )}
+      <Route c={r.conditions || {}} />
       <div className="flex flex-col items-start gap-4">
         <p className="text-[15px] text-mute">
           {!single && <>
@@ -273,6 +274,29 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
       )}
       {after && <p className="mt-3 text-sm text-mute">Replaying it on <span className="text-acid">{after.version}</span>, now live.</p>}
     </div>
+  );
+}
+
+/** A route built from one sentence, in order along the way: "3 steps up → ice → 8° ramp". */
+function Route({ c }: { c: Record<string, any> }) {
+  const segs: [number, string][] = [];
+  const n = Math.round(c.stairs_count || 0), h = c.stairs_height || 0;
+  if (n > 0 && h > 0) {
+    segs.push([c.stairs_start || 0, n === 1 ? `${Math.round(h * 100)} cm curb` : `${n} steps up`]);
+    if (c.stairs_landing > 0) segs.push([(c.stairs_start || 0) + n * (c.stairs_depth || 0.3) + c.stairs_landing, `${n} steps down`]);
+  }
+  if (c.ramp_angle > 0 && c.ramp_start > 0) segs.push([c.ramp_start, `${Math.round(c.ramp_angle)}° ramp`]);
+  if (c.ice_mu !== undefined && c.ice_length > 0) segs.push([c.ice_start || 0, c.ice_mu < 0.2 ? "ice" : "wet floor"]);
+  if (c.ice2_slip > 0 && c.ice2_length > 0) segs.push([c.ice2_start || 0, 1 - c.ice2_slip < 0.2 ? "ice" : "wet floor"]);
+  if (segs.length < 2) return null;
+  segs.sort((a, b) => a[0] - b[0]);
+  return (
+    <p className="mb-4 text-[14px] text-mute">
+      <span className="text-faint">Route </span>
+      {segs.map(([at, label], i) => (
+        <span key={i}>{i > 0 && <span className="text-faint"> → </span>}{label}<span className="text-faint"> at {at.toFixed(1)} m</span></span>
+      ))}
+    </p>
   );
 }
 

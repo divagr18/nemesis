@@ -15,6 +15,7 @@ thinking, testing, diagnosing and fixing live.
 
 import asyncio
 import json
+import os
 import time
 
 import numpy as np
@@ -24,7 +25,10 @@ from nemesis.llm import client
 from nemesis.perturb import canonical as C
 from nemesis.perturb.dsl import Program, compile_program
 
-MAX_TURNS = 14
+# The public site gives each investigation a fixed number of tries (hypothesis tests: the GPU-heavy
+# CMA-ES searches), so one visitor's run doesn't hold the shared GPU for long.
+MAX_TRIES = int(os.environ.get("NEMESIS_AUTOPILOT_TRIES", "5"))
+MAX_TURNS = MAX_TRIES + 7  # tries, plus watch / margin / patch / finish
 SEARCH = {"pop": 24, "gens": 8, "seeds": 8}
 CONFIRM_SEEDS = 32
 
@@ -43,6 +47,12 @@ explain why, and get it fixed. Work like a careful robotics engineer running an 
 Before EVERY tool call, write one or two plain sentences to the audience saying what you are testing
 and why (this narration is shown live). Prefer realistic conditions (wet tiles, a backpack, a shove
 mid-turn) over extreme ones. You have at most {turns} tool calls.
+
+This is the public version of Nemesis, shared by everyone who visits, so each investigation gets at
+most {tries} tries (test_hypothesis calls) for fair use of the GPU. Say this plainly in your first
+message to the audience (one calm sentence, e.g. "On the public site I get {tries} tries, so I'll start
+with my strongest idea."), then make every try count: lead with the hypothesis most likely to make
+this robot fall. watch, measure_margin, patch and finish don't count as tries.
 
 Physical envelope (realistic values in the descriptions):
 {envelope}
@@ -93,9 +103,10 @@ class Agent:
         # The proposer's schema and envelope, without its "{"programs": [...]}" answer wrapper.
         dsl = system_prompt().split("each Program follows this schema:")[1].strip()
         envelope = system_prompt().split("Physical envelope (realistic values in the descriptions):")[1].split("Answer with JSON only:")[0]
-        instructions = INSTRUCTIONS.format(turns=MAX_TURNS, dsl=dsl, envelope=envelope)
+        instructions = INSTRUCTIONS.format(turns=MAX_TURNS, tries=MAX_TRIES, dsl=dsl, envelope=envelope)
+        self.tries = 0
         task = "Begin the investigation." + (f" The audience asked you to focus on: {self.goal}" if self.goal else "")
-        await self.job.emit("agent_start", goal=self.goal, version=self.ctx.live_name())
+        await self.job.emit("agent_start", goal=self.goal, version=self.ctx.live_name(), tries=MAX_TRIES)
         prev, inputs = None, [{"role": "user", "content": task}]
         for turn in range(MAX_TURNS + 1):
             if turn == MAX_TURNS:
@@ -114,7 +125,8 @@ class Agent:
                 continue
             for call in calls:
                 args = json.loads(call.arguments or "{}")
-                await self.job.emit("tool_call", tool=call.name, args=args)
+                extra = {"n": self.tries + 1, "of": MAX_TRIES} if call.name == "test_hypothesis" and self.tries < MAX_TRIES else {}
+                await self.job.emit("tool_call", tool=call.name, args=args, **extra)
                 if call.name == "finish":
                     await self.job.finish("done", {"summary": args.get("summary", ""),
                                                    "failures": list(self.failures.values())})
@@ -130,6 +142,10 @@ class Agent:
 
     # ---- tools ------------------------------------------------------------------------------
     async def test_hypothesis(self, hypothesis: str, program_json: str) -> dict:
+        if self.tries >= MAX_TRIES:
+            raise RuntimeError(f"Out of tries: the public site allows {MAX_TRIES} per investigation. "
+                               "Watch, measure or patch what you found, or finish.")
+        self.tries += 1
         from nemesis.adversary.cmaes import FAIL_RATE, plausibility_cost, search_many, shrink
 
         data = json.loads(program_json)

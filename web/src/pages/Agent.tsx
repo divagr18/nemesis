@@ -7,7 +7,9 @@ import { follow, pct, post } from "../lib/api";
 type Ev = { stage: string; [k: string]: any };
 type Output = { id: string; hypothesis: string; fall_rate: number; trajs: any[] | null; clip: string; diagnosis?: any; margin?: any };
 
-const SUGGEST = ["Slipping while turning", "Carrying a heavy backpack", "Weak motors on one side"];
+// Goals the live robot hasn't been trained on, so Muse can find a fall within the public site's tries.
+const SUGGEST = ["Tripping on a step or curb", "Slipping while turning", "A weak knee on wet tiles"];
+const TRIES = 5;  // NEMESIS_AUTOPILOT_TRIES on the public site
 
 /** Agent mode: a chat with Muse on the left, the outputs it produces (3D replays, diagnoses, margins) on the right. */
 export default function Agent() {
@@ -61,6 +63,9 @@ export default function Agent() {
               className="rounded-full border border-white/12 bg-white/[.04] px-3 py-1.5 text-[13px] text-ink/85 transition-colors hover:border-white/30 hover:bg-white/[.09]">{s}</button>
           ))}
         </div>
+        <p className="mt-8 text-center text-[13px] text-faint">
+          On this public version, Muse stops after {TRIES} tries per investigation, so the GPU is shared fairly between visitors.
+        </p>
       </div>
     );
   }
@@ -123,7 +128,7 @@ function Chat({ prompt, events, running, error, selected, onSelect }: { prompt: 
   let pending: any = null;
   for (const e of events) {
     if (e.stage === "say") items.push({ kind: "say", text: e.text });
-    else if (e.stage === "tool_call" && e.tool === "test_hypothesis") { pending = { kind: "test", text: e.args.hypothesis, state: "run" }; items.push(pending); }
+    else if (e.stage === "tool_call" && e.tool === "test_hypothesis") { pending = { kind: "test", text: e.args.hypothesis, state: "run", n: e.n, of: e.of }; items.push(pending); }
     else if (e.stage === "failure" && pending) { pending.state = "fell"; pending.id = e.id; pending.rate = e.fall_rate; pending = null; }
     else if (e.stage === "tool_result" && e.tool === "test_hypothesis" && pending) {
       pending.state = e.result.error ? "error" : "held"; pending.rate = e.result.fall_rate; pending = null;
@@ -153,7 +158,9 @@ function Chat({ prompt, events, running, error, selected, onSelect }: { prompt: 
                     it.state === "fell" ? <i className="block size-[15px] rounded-full bg-ember" /> :
                     it.state === "held" ? <Check size={15} className="text-acid" /> : <X size={15} className="text-faint" />}
                 </span>
-                <span className="min-w-0 flex-1 text-[14px] leading-snug text-mute">{it.text}</span>
+                <span className="min-w-0 flex-1 text-[14px] leading-snug text-mute">
+                  {it.n && <span className="mr-2 font-mono text-xs text-faint">{it.n}/{it.of}</span>}{it.text}
+                </span>
                 <span className={`shrink-0 font-mono text-xs ${it.state === "fell" ? "text-ember" : it.state === "held" ? "text-acid" : "text-faint"}`}>
                   {it.state === "run" ? "testing" : it.state === "fell" ? `fell ${pct(it.rate)}` : it.state === "held" ? `held ${pct(it.rate)}` : "retry"}
                 </span>
