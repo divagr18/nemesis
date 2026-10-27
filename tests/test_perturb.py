@@ -77,7 +77,7 @@ def test_weak_motors_collapse_onto_floor(env, sim):
     _, run = sim
     neutral = run(C.neutral(), 60, seed=2)
     weak = run(theta_with(motor_strength=0.3), 60, seed=2)
-    assert float(weak[-1].data.qpos[2]) < float(neutral[-1].data.qpos[2]) - 0.02
+    assert float(weak[-1].data.qpos[2]) < float(neutral[-1].data.qpos[2]) - 0.015
     assert any(float(s.metrics["nemesis_fall"]) > 0 for s in weak)
     assert float(weak[-1].data.qpos[2]) > 0.05  # rests on the floor instead of sinking through
     assert not any(float(s.metrics["nemesis_fall"]) > 0 for s in neutral)

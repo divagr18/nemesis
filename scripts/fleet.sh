@@ -9,7 +9,8 @@
 #   scripts/fleet.sh down                   terminate every box in the fleet
 set -uo pipefail
 export MSYS_NO_PATHCONV=1
-STATE=~/.nemesis_fleet
+STATE=~/.nemesis_fleet${FLEET:+_$FLEET}   # FLEET=east scripts/fleet.sh ... for a second fleet
+TYPE=${TYPE:-g6e.xlarge}                  # TYPE=g6.2xlarge for L4 boxes
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SSH=(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR
      -o ConnectTimeout=10 -o ServerAliveInterval=30 -i ~/.ssh/id_ed25519)
@@ -42,7 +43,7 @@ case "${1:-}" in
     got=0
     for sn in $(aws ec2 describe-subnets --region "$region" --filters Name=vpc-id,Values="$vpc" Name=default-for-az,Values=true --query 'Subnets[].SubnetId' --output text); do
       while [ $got -lt "$n" ]; do
-        id=$(aws ec2 run-instances --region "$region" --image-id "$ami" --instance-type g6e.xlarge --key-name nemesis \
+        id=$(aws ec2 run-instances --region "$region" --image-id "$ami" --instance-type "$TYPE" --key-name nemesis \
           --subnet-id "$sn" --security-group-ids "$sg" --instance-initiated-shutdown-behavior terminate \
           --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=150,VolumeType=gp3,DeleteOnTermination=true}' \
           --user-data "fileb://$(cygpath -m "$ROOT/scripts/aws_userdata.sh")" \
@@ -56,7 +57,7 @@ case "${1:-}" in
   setup)
     ips | while read -r i ip st; do
       [ "$st" = running ] || continue
-      (for _ in $(seq 1 30); do "${SSH[@]}" "ubuntu@$ip" true 2>/dev/null && break; sleep 8; done
+      (for _ in $(seq 1 30); do "${SSH[@]}" -n "ubuntu@$ip" true 2>/dev/null && break; sleep 8; done
        (cd "$ROOT" && tar --exclude=.git --exclude=./runs --exclude=__pycache__ --exclude=./.venv-win -czf - .) \
          | "${SSH[@]}" "ubuntu@$ip" 'mkdir -p ~/muse && tar -xzf - -C ~/muse'
        (cd "$ROOT" && tar -czf - runs/baseline_v2/config.json $(ls runs/baseline_v2/ckpts/*.pkl | tail -1)) \
@@ -70,13 +71,13 @@ case "${1:-}" in
   status)
     ips | while read -r i ip st; do
       [ "$st" = running ] || { echo "[box $i] $st"; continue; }
-      echo "[box $i] $("${SSH[@]}" "ubuntu@$ip" 'n=$(ps -eo cmd | grep -c "[r]un_arm.py"); l=$(ls -t ~/muse/runs/arms/*.log 2>/dev/null | head -1); echo "jobs=$n $(basename "$l" 2>/dev/null): $(grep -E "round [0-9] done|Traceback|Error:" "$l" 2>/dev/null | tail -1 | cut -c1-110)"' 2>/dev/null)"
+      echo "[box $i] $("${SSH[@]}" -n "ubuntu@$ip" 'n=$(ps -eo cmd | grep -c "[r]un_arm.py"); l=$(ls -t ~/muse/runs/arms/*.log 2>/dev/null | head -1); echo "jobs=$n $(basename "$l" 2>/dev/null): $(grep -E "round [0-9] done|Traceback|Error:" "$l" 2>/dev/null | tail -1 | cut -c1-110)"' 2>/dev/null)"
     done ;;
   fetch)
     mkdir -p "$ROOT/runs/arms"
     ips | while read -r i ip st; do
       [ "$st" = running ] || continue
-      "${SSH[@]}" "ubuntu@$ip" 'cd ~/muse/runs && tar -czf - arms 2>/dev/null' | tar -xzf - -C "$ROOT/runs" && echo "[box $i] fetched"
+      "${SSH[@]}" -n "ubuntu@$ip" "cd ~/muse/runs && tar -czf - ${FETCH:-arms} 2>/dev/null" | tar -xzf - -C "$ROOT/runs" && echo "[box $i] fetched"
     done ;;
   down)
     read -r region _ < "$STATE"
