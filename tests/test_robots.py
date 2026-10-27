@@ -172,4 +172,6 @@ def test_humanoid_wrapper(g1_env):
     first = lambda tr: next(i for i, x in enumerate(tr) if float(x.metrics["nemesis_fall"]) > 0)  # noqa: E731
     neutral, pushed = run(G1.neutral(), 100), run(t, 100)
     assert first(pushed) < first(neutral)
-    assert float(pushed[-1].data.qpos[2]) > 0.1
+    # The pelvis collision box's half-extents are 0.06-0.11 m, so a body lying on the floor keeps the
+    # pelvis origin at ~0.06-0.08 m (measured 0.077 on its back); sinking through would put it near 0.
+    assert float(pushed[-1].data.qpos[2]) > 0.05

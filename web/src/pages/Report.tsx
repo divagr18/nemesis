@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import Envelope from "../components/Envelope";
 import { api, follow, pct, post } from "../lib/api";
 
 const fmt = (v: any): string => {
@@ -114,6 +115,7 @@ export default function Report() {
                     </div>
                   </div>
                 )}
+                <SafetyMap attackId={f.id} version={rep.version} />
               </div>
             </div>
           ))}
@@ -121,4 +123,17 @@ export default function Report() {
       </section>
     </article>
   );
+}
+
+/** The safety map for one finding, on request (a GPU grid run: v1 against this version). */
+function SafetyMap({ attackId, version }: { attackId: string; version: string }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="mt-5 cursor-pointer text-sm text-mute underline decoration-white/20 underline-offset-4 hover:text-ink">
+        Show the safety map
+      </button>
+    );
+  }
+  return <Envelope attackId={attackId} versions={version === "v1" ? ["v1"] : ["v1", version]} />;
 }
