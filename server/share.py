@@ -31,7 +31,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 router = APIRouter()
 
 PUBLIC_URL = os.environ.get("NEMESIS_PUBLIC_URL", "https://nemesis.divagr.com").rstrip("/")
-CREDIT = os.environ.get("NEMESIS_CREDIT", "divagr.com")  # the author's site, credited in every X post
+META = os.environ.get("NEMESIS_X_META", "@AIatMeta's Muse")  # who the X post challenges
 X_LIMIT, X_URL = 280, 23  # X counts a link as 23 characters
 INDEX = Path("web/dist/index.html")
 RENDER_REV = "1"  # bump to re-render every cached card and clip after a design change
@@ -115,42 +115,23 @@ def _truncate(s: str, n: int) -> str:
     return cut.rstrip(" ,.;:") + "…"
 
 
-def told(r: dict, fixed_in: str | None, extra: bool = True) -> str:
-    """What happened, in the active voice: 'The original fell on 3 of 4 tries; the retrained v11 stayed up.'"""
-    nb, nl = (round((r.get(k) or 0) * SEEDS) for k in ("fall_rate_baseline", "fall_rate_trained"))
-    ver = r.get("version") or "live"
-    tries = lambda n: "every time" if n >= SEEDS else f"on {n} of {SEEDS} tries"  # noqa: E731
-    if ver == "v1":
-        out = f"It fell {tries(nb)}." if nb else "It stayed up every time."
-    elif nb and not nl:
-        out = f"The original fell {tries(nb)}; the retrained {ver} stayed up every time."
-    elif nb >= SEEDS and nl >= SEEDS:
-        out = f"It fell every time, original and retrained {ver} alike."
-    elif nb and nl:
-        out = f"The original fell {tries(nb)}, the retrained {ver} {tries(nl)}."
-    elif nl:
-        out = f"The original stayed up, but the retrained {ver} fell {tries(nl)}."
-    else:
-        out = f"Both the original and the retrained {ver} stayed up."
-    if extra and fixed_in and fixed_in != ver and nl:
-        out += f" {fixed_in} has since learned it."
-    elif extra and r.get("survivable") is False and nl:
-        out += " Even our toughest robot falls here."
-    return out
-
-
 def post_text(r: dict, fixed_in: str | None) -> str:
-    """The X post (the intent adds the link): what the sharer did, what happened, one line on Nemesis."""
-    noun = "humanoid robot" if r.get("robot") == "g1" else "robot dog"
-    about = f"Nemesis ({CREDIT}) turns a sentence into physics, then retrains the robot until it holds. Try one:"
-    head = f"I threw “{{}}” at a simulated {noun}. "
-    sentence = _sentence(r)
-    for extra in (True, False):  # the visitor's sentence comes first: drop the extra clause if it doesn't fit
-        happened = told(r, fixed_in, extra)
-        room = X_LIMIT - X_URL - 1 - (len(head) - 2) - len(happened) - len(about) - 2
-        if len(sentence) <= room:
-            break
-    return head.format(_truncate(sentence, max(24, room))) + f"{happened}\n\n{about}"
+    """The X post, written the way a person would post it (the intent adds the link): a challenge to
+    Meta's Muse to keep its hardened robot standing, the sentence, and how it went."""
+    bot = "humanoid" if r.get("robot") == "g1" else "robot dog"
+    hardened = r.get("version") not in (None, "v1")  # the live robot has been retrained on earlier falls
+    nb, nl = (round((r.get(k) or 0) * SEEDS) for k in ("fall_rate_baseline", "fall_rate_trained"))
+    times = lambda n: "every time" if n >= SEEDS else "once out of {}".format(SEEDS) if n == 1 else f"{n} times out of {SEEDS}"  # noqa: E731
+    head = f"Challenged {META} to keep its {'hardened ' if hardened else ''}{bot} on its feet. "
+    if nl:
+        body = "One sentence knocked it over {times}:\n\n“{s}”".replace("{times}", times(nl))
+    elif nb:
+        body = "“{s}” floored the original, but the hardened one stayed up."
+    else:
+        body = "Threw “{s}” at it. Didn't budge."
+    tail = "\n\nYour turn:"
+    room = X_LIMIT - X_URL - 1 - len(head) - (len(body) - 3) - len(tail)
+    return head + body.replace("{s}", _truncate(_sentence(r), max(24, room))) + tail
 
 
 # ---- public record ---------------------------------------------------------------------------------
