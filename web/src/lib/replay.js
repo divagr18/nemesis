@@ -11,7 +11,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 
-const COL = { bg: 0x0b0d12, crimson: 0xff5b35, cyan: 0x22d3ee, ice: 0x7cc4ff, robot: 0xb4bbc8, floor: 0x0f1218 };
+const COL = { bg: 0x0b0d12, crimson: 0xff5b35, cyan: 0xd7f25d, ice: 0x7cc4ff, robot: 0xb4bbc8, floor: 0x0f1218 };
 const DTYPES = { float32: Float32Array, uint16: Uint16Array, uint32: Uint32Array, int16: Int16Array, uint8: Uint8Array };
 const Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0);
 const assetCache = new Map();
@@ -54,7 +54,7 @@ const CSS = `
   border:1px solid #222733;font:600 12px/1.2 Inter,system-ui,sans-serif;color:#e7e9ee;white-space:nowrap;position:relative;top:-6px}
 .nr-pill{display:none;font:700 10px/1 "IBM Plex Mono",monospace;letter-spacing:.04em;padding:3px 5px;border-radius:4px}
 .nr-pill.fell{display:inline-block;background:#ff5b35;color:#fff}
-.nr-pill.held{display:inline-block;background:#22d3ee;color:#04141a}
+.nr-pill.held{display:inline-block;background:#d7f25d;color:#04141a}
 .nr-tag{font:600 10px/1 "IBM Plex Mono",monospace;color:#bfe3ff;background:rgba(15,40,70,.6);border:1px solid rgba(124,196,255,.5);
   padding:3px 6px;border-radius:4px;white-space:nowrap}
 .nr-tag.red{color:#fff;background:rgba(255,91,53,.85);border-color:#ff5b35}

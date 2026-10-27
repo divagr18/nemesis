@@ -45,52 +45,50 @@ export default function Lab() {
 
   return (
     <div>
-      {/* Hero: headline, replay and input all fit the first screen. */}
-      <div className="flex h-[calc(100dvh-8.5rem)] min-h-[540px] flex-col">
-      <section className="shrink-0 pb-6 sm:pb-8">
-        <h1 className="text-[34px] font-medium leading-[1.02] tracking-[-0.035em] sm:text-[52px] lg:text-[60px]">
-          Try to break the robot.
-          <span className="block text-faint">Then watch it learn.</span>
-        </h1>
-      </section>
-
-      <section className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line bg-[#0b0d12]">
-        {stage ? (
-          <Replay key={JSON.stringify(stage)} trajs={stage.map((t: any, i: number) => ({ url: t.url, label: labels?.[i] || t.label }))} className="absolute inset-0" />
-        ) : (
-          <Replay trajs={[{ url: "/assets/sample_traj_held.json", label: "" }]} hud={false} className="absolute inset-0" />
-        )}
-        {busy && (
-          <div className="absolute inset-0 grid place-items-center bg-black/60 backdrop-blur-[2px]">
-            <div className="w-56">
-              <p className="text-center text-sm text-mute">{busy}</p>
-              <div className="mt-3 h-px overflow-hidden bg-line"><div className="sweep h-full w-1/3 bg-ember" /></div>
+      {/* Hero: copy + attack box (1/3) beside the live replay (2/3), all on the first screen. */}
+      <div className="grid gap-8 pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-12 lg:pt-6">
+        <section className="flex flex-col lg:h-[calc(100dvh-11rem)] lg:min-h-[460px]">
+          <h1 className="text-[40px] font-medium leading-[1.04] tracking-[-0.035em] xl:text-[50px]">
+            Try to break<br className="hidden lg:block" /> the robot.
+            <span className="block text-faint">Then watch<br className="hidden lg:block" /> it learn.</span>
+          </h1>
+          <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-mute">
+            Describe an attack, say it, or show a photo of a real place. Muse turns it into physics. If the robot falls,
+            retrain it until it doesn't.
+          </p>
+          <div className="mt-auto pt-8">
+            <Composer busy={!!busy} examples={EXAMPLES}
+              onText={(text) => run("Muse Wonder is turning that into physics…", () => post("/api/attack", { text }))}
+              onVoice={(wav) => run("Listening, then simulating…", () => upload("/api/attack_voice", "audio", wav, "attack.wav"))}
+              onFile={(f) => run("Muse Spark is reading your place…", () => upload("/api/world", "media", f, f.name))} />
+          </div>
+          {error && <p className="mt-3 text-sm text-ember">{error}</p>}
+          {result && !busy && <Verdict r={result} after={after} onPatch={async () => {
+            try { setPatchJob((await post("/api/patch", { attack_id: result.id })).job); } catch (e: any) { setError(e.message); }
+          }} patching={!!patchJob} />}
+          {patchJob && (
+            <div className="mt-4">
+              <PatchPanel job={patchJob} onDone={(e) => { if (e.accepted) setAfter(e); setTick((t) => t + 1); }} />
             </div>
-          </div>
-        )}
-      </section>
+          )}
+        </section>
 
-      <section className="mx-auto mt-4 w-full max-w-3xl shrink-0">
-        <Composer busy={!!busy} examples={EXAMPLES}
-          onText={(text) => run("Muse Wonder is turning that into physics…", () => post("/api/attack", { text }))}
-          onVoice={(wav) => run("Listening, then simulating…", () => upload("/api/attack_voice", "audio", wav, "attack.wav"))}
-          onFile={(f) => run("Muse Spark is reading your place…", () => upload("/api/world", "media", f, f.name))} />
-      </section>
+        <section className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-line bg-[#0b0d12] lg:aspect-auto lg:h-[calc(100dvh-11rem)] lg:min-h-[460px]">
+          {stage ? (
+            <Replay key={JSON.stringify(stage)} trajs={stage.map((t: any, i: number) => ({ url: t.url, label: labels?.[i] || t.label }))} className="absolute inset-0" />
+          ) : (
+            <Replay trajs={[{ url: "/assets/sample_traj_held.json", label: "" }]} hud={false} className="absolute inset-0" />
+          )}
+          {busy && (
+            <div className="absolute inset-0 grid place-items-center bg-black/60 backdrop-blur-[2px]">
+              <div className="w-56">
+                <p className="text-center text-sm text-mute">{busy}</p>
+                <div className="mt-3 h-px overflow-hidden bg-line"><div className="sweep h-full w-1/3 bg-ember" /></div>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
-
-      <section className="mx-auto max-w-3xl">
-        {error && <p className="mt-3 text-sm text-ember">{error}</p>}
-
-        {result && !busy && <Verdict r={result} after={after} onPatch={async () => {
-          try { setPatchJob((await post("/api/patch", { attack_id: result.id })).job); } catch (e: any) { setError(e.message); }
-        }} patching={!!patchJob} />}
-
-        {patchJob && (
-          <div className="mt-4">
-            <PatchPanel job={patchJob} onDone={(e) => { if (e.accepted) setAfter(e); setTick((t) => t + 1); }} />
-          </div>
-        )}
-      </section>
 
       {recent.length > 0 && (
         <section className="mt-28">
@@ -159,7 +157,7 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
           </p>
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+      <div className="flex flex-col items-start gap-4">
         <p className="text-[15px] text-mute">
           Original robot <span className={r.broke_baseline ? "text-ember" : "text-acid"}>{r.broke_baseline ? "fell" : "held"}</span>
           <span className="text-faint"> · {pct(r.fall_rate_baseline)}</span>
@@ -170,7 +168,7 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
         </p>
         {canPatch && (
           <button onClick={onPatch} disabled={patching}
-            className="ml-auto flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-85 disabled:opacity-40">
+            className="flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-85 disabled:opacity-40">
             Train it to survive this <ArrowRight size={15} />
           </button>
         )}

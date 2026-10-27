@@ -31,8 +31,8 @@ export default function Layout() {
           {v && <span className="ml-2 hidden shrink-0 rounded-full bg-white/[.06] px-3.5 py-2 font-mono text-[13px] text-mute md:block">{v.live}</span>}
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-5 pt-10 pb-24 sm:px-8"><Outlet /></main>
-      <footer className="mx-auto flex max-w-6xl flex-wrap justify-between gap-4 border-t border-line px-5 py-8 text-xs text-faint sm:px-8">
+      <main className="mx-auto max-w-7xl px-5 pt-8 pb-24 sm:px-8"><Outlet /></main>
+      <footer className="mx-auto flex max-w-7xl flex-wrap justify-between gap-4 border-t border-line px-5 py-8 text-xs text-faint sm:px-8">
         <span>Muse Wonder · Muse Spark · Muse Voice Transcribe · Muse Glimmer · MuJoCo MJX</span>
         <a className="hover:text-mute" href="https://github.com/divagr18/nemesis">source</a>
       </footer>
