@@ -2,32 +2,36 @@
 
 Video plus product are about half the score: Demo counts 25%, and judges use the video when scoring the other three criteria. The final round judges watch it live. The X cut also competes for the $20k Most Viral prize, and the live page drives the community vote.
 
-## The idea
-**Robot vs. the AI built to break it.** A fight in rounds. There are two characters, and every clip on screen is real system output:
-- **The robot (cyan).** It learns, falls, adapts.
-- **Nemesis (crimson).** You only see it through what it does: a stream of thoughts in monospace text (Muse Wonder's actual hypotheses), attacks rendered in red, and verdicts from Muse Spark.
+## The idea (v2, after the main experiment: red-team framing)
+**An AI red team for robots.** Before a robot ships, someone should try hard to break it, and explain what they found. Nemesis does that with Meta's models:
+- **Wonder** forms physical hypotheses about why the robot works and writes attacks to test them.
+- **Spark** watches every fall and says what went wrong.
+- **Anyone** can attack the robot in plain English, typed or spoken.
+- Then Nemesis **fixes** what it found.
 
-**Three "wow" moments the whole edit builds toward:**
-1. **The hunt grid.** 16 robots in a 4×4 grid, each running one CMA-ES candidate. Generation by generation, the grid turns red as the attack homes in.
-2. **Before/after slow-mo.** The same attack, frame-synced: round 0 falls, round 3 catches itself.
-3. **A live human attack.** Someone types or says an attack on the public page and the robot survives it. Then someone finds a failure, it goes into Nemesis's training pool, and the next round survives it too.
+Every clip is real system output. The tone is an investigation, not a fight: the robot is the subject, Nemesis is the investigator.
 
-## Script (target 2:55; must be under 3:00, about 400 words of voiceover)
+**What the video must never claim:** that Nemesis beats domain randomization as a training method. It doesn't at our budget (see the "Honest science" beat). Every number comes from `analyze.py` / `analyze_wide.py`.
+
+**Three "wow" moments:**
+1. **The diagnosis.** A slow-mo fall, then Spark's verbatim diagnosis typing out ("both hind feet slid backward and splayed on the ice…"), then Wonder's next hypothesis quoting it, then the hunt confirming it. The Meta-model loop, visible.
+2. **Plain-language red teaming.** Live on the page, someone says "make the floor icy and shove it from the left". Wonder compiles it (μ = 0.08, 100 N from the left at t = 2 s), and the side-by-side clip shows the original robot fall and the hardened one.
+3. **Before/after.** The same attacks, frame-synced: the original policy falls, the Nemesis-hardened policy catches itself. Held-out attacks: 27.5% → 13.5% falls, and no slower on flat ground.
+
+## Script (target 2:55; under 3:00; about 400 words of VO)
 
 | Time | Beat | Picture | VO / on-screen text |
 |---|---|---|---|
-| 0:00–0:07 | **Cold open** | 7 one-second slow-mo falls. Each is labelled in red with the name Muse Spark gave that failure ("rear-foot slip on descent", "torque collapse under payload"…). A thud on each cut. | No VO. Text: *Every one of these failures was invented by an AI.* |
-| 0:07–0:13 | **Reversal** | Hard cut to black, then the same 7 scenarios in a grid. The robot survives every one. | Text: *Then the robot learned to survive all of them.* Title: **NEMESIS**: robots that train against an AI built to break them. |
-| 0:13–0:28 | **Problem** | Left: domain randomization as gray robots with random jitter, "guessing". Right: one targeted red attack. | "Robots trained in simulation break in the real world in ways nobody predicted. The standard fix is to throw random noise at them and hope. What if an AI went looking for the failures on purpose?" |
-| 0:28–0:36 | **Teach** (cut to 8 s per expert review) | The spoken skill becomes a Muse Voice Transcribe caption, then a 2 s training timelapse. One Spark verdict stamp: *REJECTED: "dragging torso, not walking"*. | "Teach it a skill in plain English; Muse Spark checks it's really doing it." |
-| 0:36–1:30 | **The hunt** (centerpiece) | The UI turns crimson. **The Meta loop, visible:** Spark watches a fall and says *"rear legs splay under load"*, Wonder's next hypothesis quotes it, and the hunt confirms it. Nemesis's thought stream types out the hypothesis, which compiles to an attack program card. **Wow 1: the hunt grid.** Result card: *most plausible failure*, with a green plausibility meter. Shrinking animation: the attack minimizes to the smallest version that still breaks it. Failure atlas clusters light up. | "Meet Nemesis. It forms hypotheses about why the robot works, writes attacks to test them, and finds the most plausible way to make it fall. Muse Spark watches every failure and tells Nemesis what it saw." |
-| 1:35–2:05 | **The comeback** | Fight-game round cards: ROUND 1 → 2 → 3. **Wow 2: before/after slow-mo.** Nemesis adapts ("round 2: Nemesis looks for something subtler") and finds a new failure, which then gets fixed. | "Every failure becomes training data. Then Nemesis attacks again, harder, and the robot keeps getting tougher." |
-| 2:05–2:28 | **Proof** | **Headline: the discovery curve.** Distinct failure modes found per GPU-minute, one line per adversary (LLM+CMA vs CMA-only vs shuffled-LLM vs random). Then CVaR@10% bars at matched compute, with per-seed dots. Small print: test set locked before results · fresh adversary in eval · nominal unchanged. | "Language-guided hypotheses find [X]× more distinct failures per GPU-minute than search alone. Training on them makes the worst 10% of scenarios [Y]% safer at the same compute." *(numbers come only from P8 results)* |
-| 2:28–2:48 | **Try it** | Screen recording. **Wow 3: the live human attack**: someone types "icy floor + kick from the left" and the robot survives. Another visitor breaks it: *added to Nemesis's training pool*. Hall of Fame list. | "And you can join the attack. Break the robot and your attack becomes its next lesson." URL on screen. |
-| 2:48–2:55 | **Close** | Slow push-in on the robot standing on hard terrain. | "Robots shouldn't discover their weaknesses in the real world. Nemesis finds them first." |
-| End card | | Built during the hackathon: [list] · Built on MuJoCo Playground (DeepMind) and Brax · Meta models: Muse Wonder, Muse Spark 1.3, Muse Voice Transcribe, Muse Glimmer (open weights)[, SAM 3.1] · repo · live URL · @divagr1925 | |
-
-**If the results are weaker than hoped:** reframe Proof around what is solid, for example "found N failures that domain randomization never surfaced" and "fixed X of N with no loss on normal walking". Never show a number that isn't in `analyze.py` output.
+| 0:00–0:07 | **Cold open** | 6 one-second slow-mo falls with visible perturbations (ice patch, payload box, push arrow, red-tinted weak leg). Each is labelled with **Spark's name** for that failure mode. | Text: *Each of these failures was found, named and explained by an AI.* |
+| 0:07–0:12 | **Title** | **NEMESIS**: an AI red team for robots. | |
+| 0:12–0:27 | **Problem** | A robot walking fine in sim, then a cut to a real-world montage (stock-free: sim scenes labelled "wet tile", "backpack", "worn motor"). | "Robots trained in simulation fail in the real world in ways nobody predicted, and when they fail, nobody can tell you why. Before a robot ships, someone should try to break it, and explain what they found." |
+| 0:27–1:15 | **The investigation** (centerpiece) | **Wonder** thought stream types a hypothesis; it compiles to an attack card; the **hunt grid** shows candidates turning red; **shrink** reduces it to the most plausible failure. **Wow 1:** **Spark** watches the fall and types its diagnosis; Wonder's next hypothesis cites it; that one breaks the robot too. Failure atlas fills in, every entry named. | "Muse Wonder forms hypotheses about why the robot works and writes attacks to test them. An optimizer finds the most plausible way to make it fall. Muse Spark watches every failure and tells Wonder what it saw, and Wonder uses that to dig deeper." |
+| 1:15–1:40 | **The fix** | **Wow 3:** before/after slow-mo on held-out attacks. Bars: held-out attacks 27.5% → 13.5%; DR-style held-out 58% → 38%; flat ground 4.5 → 4.6 m. | "Then Nemesis turns what it found into training. One round halves falls on attacks it never trained on, without making the robot timid." |
+| 1:40–2:05 | **Honest science** | A clean chart: the matched-compute comparison. DR, the industry standard, is competitive or better as a *training* method; Nemesis is the only one that tells you *what* breaks and *why*. Pre-registration commit hash on screen. | "We tested this against the industry standard, domain randomization, with pre-registered experiments. As a training method it's just as strong, but it can't tell you what breaks. Nemesis can, even on DR-trained robots." [adjust to the final A–F verdicts] |
+| 2:05–2:35 | **Try it** | **Wow 2:** the screen recording. Voice: "make the floor icy and shove it from the left" → Voice Transcribe caption → Wonder's compiled attack → side-by-side clip. Hall of Fame. | "And anyone can red-team it in plain English, typed or spoken. Every attack that still works becomes the robot's next lesson." URL. |
+| 2:35–2:50 | **Open weights** | Glimmer logo card + terminal: the same loop running on Muse Glimmer on our own GPU. | "The whole red team also runs on Muse Glimmer, Meta's open-weight model, on a single GPU." |
+| 2:50–2:55 | **Close** | The robot crossing an ice patch and catching itself. | "Robots shouldn't discover their weaknesses in the real world. Nemesis finds them first." |
+| End card | | Built during the hackathon (all of it) · MuJoCo Playground (DeepMind), Brax, evosax · Muse Wonder, Muse Spark 1.3, Muse Voice Transcribe, Muse Glimmer · repo · live URL · @divagr1925 | |
 
 ## Art direction
 - **Palette:** robot and "defense" in cyan (#22D3EE); Nemesis, attacks and failures in crimson (#E11D48); neutral studio gray for everything else. A dark UI.
