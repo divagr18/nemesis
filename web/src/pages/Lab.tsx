@@ -15,6 +15,12 @@ const EXAMPLES = [
   "Slippery front feet when it suddenly stops",
 ];
 
+const SAMPLES = [
+  ["Icy shove", "Make the floor icy and shove it from the left"],
+  ["Wet tiles + load", "Wet tiles and a 3 kg backpack"],
+  ["Weak knee", "The back-left knee is weak, on a gentle downhill"],
+];
+
 type Attack = any;
 
 export default function Lab() {
@@ -46,27 +52,27 @@ export default function Lab() {
 
   return (
     <div>
-      {/* Hero: copy + attack box (1/3) beside the live replay (2/3), all on the first screen. */}
-      <div className="grid gap-8 pt-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-12 lg:pt-10">
-        <section className="flex flex-col">
-          <h1 className="text-balance font-medium leading-[0.98] tracking-[-0.04em]" style={{ fontSize: "clamp(36px, min(3.3vw, 6.2vh), 58px)" }}>
-            Try to break the robot.
-            <span className="block text-mute">Then watch it learn.</span>
+      {/* Hero: one composed block (copy, samples, input) beside the live replay, 1/3 : 2/3, on the first screen. */}
+      <div className="grid items-center gap-10 pt-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-14 lg:pt-12">
+        <section className="w-full max-w-[440px]">
+          <h1 className="font-medium leading-[1.02] tracking-[-0.04em]" style={{ fontSize: "clamp(40px, min(3.7vw, 7vh), 56px)" }}>
+            <span className="block lg:whitespace-nowrap">Break the robot.</span>
+            <span className="block text-mute lg:whitespace-nowrap">Watch it learn.</span>
           </h1>
-          <p className="mt-5 max-w-md text-base leading-normal text-ink/75">
-            Describe an attack, say it, or show a photo of a real place. Muse turns it into physics. If the robot falls,
-            retrain it until it doesn't.
+          <p className="mt-5 text-base leading-[1.55] text-ink/75">
+            Describe an attack in plain English, say it out loud, or show a photo of a real place. Muse turns it into
+            physics. If the robot falls, retrain it until it doesn't.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
-            {["Icy floor + a shove from the left", "Wet tiles and a 3 kg backpack", "Weak back-left knee, downhill"].map((ex) => (
-              <button key={ex} onClick={() => setPrefill((p) => ({ text: ex, n: p.n + 1 }))} disabled={!!busy}
-                className="cursor-pointer rounded-full border border-white/12 bg-white/[.04] px-3.5 py-1.5 text-sm text-ink/85 transition-colors hover:border-white/30 hover:bg-white/[.09] hover:text-ink active:scale-[.98] disabled:opacity-40">
-                {ex}
+            {SAMPLES.map(([label, text]) => (
+              <button key={label} onClick={() => setPrefill((p) => ({ text, n: p.n + 1 }))} disabled={!!busy}
+                className="cursor-pointer rounded-full border border-white/12 bg-white/[.04] px-3 py-1.5 text-[13px] leading-none text-ink/85 transition-colors hover:border-white/30 hover:bg-white/[.09] hover:text-ink active:scale-[.98] disabled:opacity-40">
+                {label}
               </button>
             ))}
           </div>
-          <div className="mt-auto pt-6">
-            <Composer busy={!!busy} examples={EXAMPLES} prefill={prefill}
+          <div className="mt-8">
+            <Composer busy={!!busy} examples={["Describe an attack…"]} prefill={prefill}
               onText={(text) => run("Muse Wonder is turning that into physics…", () => post("/api/attack", { text }))}
               onVoice={(wav) => run("Listening, then simulating…", () => upload("/api/attack_voice", "audio", wav, "attack.wav"))}
               onFile={(f) => run("Muse Spark is reading your place…", () => upload("/api/world", "media", f, f.name))} />
@@ -82,7 +88,7 @@ export default function Lab() {
           )}
         </section>
 
-        <section className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-line bg-[#0b0d12] lg:aspect-auto lg:min-h-[400px] lg:max-h-[calc(100dvh-10rem)]">
+        <section className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-line bg-[#0b0d12] lg:aspect-[16/11] lg:max-h-[calc(100dvh-11rem)]">
           {stage ? (
             <Replay key={JSON.stringify(stage)} trajs={stage.map((t: any, i: number) => ({ url: t.url, label: labels?.[i] || t.label }))} className="absolute inset-0" />
           ) : (

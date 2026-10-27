@@ -47,13 +47,13 @@ export default function Composer({ onText, onVoice, onFile, busy, examples = [],
   };
 
   return (
-    <div className={`rounded-2xl border bg-panel transition-colors ${rec ? "border-ember/60" : "border-line focus-within:border-white/25"}`}>
+    <div className={`flex items-end gap-1 rounded-2xl border bg-panel py-2 pr-2 pl-4 transition-colors ${rec ? "border-ember/60" : "border-white/12 focus-within:border-white/30"}`}>
       <textarea ref={area} rows={1} value={text} disabled={busy}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
-        placeholder={rec ? "Listening… tap stop when you're done" : examples[hint] || "Describe an attack"}
-        className="block w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[17px] leading-relaxed text-ink outline-none placeholder:text-mute/80 disabled:opacity-60" />
-      <div className="flex items-center gap-1 px-3 pb-3">
+        placeholder={rec ? "Listening… tap stop when done" : examples[hint] || "Describe an attack"}
+        className="block min-w-0 flex-1 resize-none self-center bg-transparent py-1.5 text-base leading-6 text-ink outline-none placeholder:text-mute/80 disabled:opacity-60" />
+      <div className="flex shrink-0 items-center gap-0.5">
         {onVoice && (
           <button onClick={mic} disabled={busy} title={rec ? "Stop" : "Say it"}
             className={`grid size-9 place-items-center rounded-full transition-colors ${rec ? "bg-ember/15 text-ember" : "text-mute hover:bg-white/5 hover:text-ink"}`}>
@@ -71,7 +71,7 @@ export default function Composer({ onText, onVoice, onFile, busy, examples = [],
           </>
         )}
         <button onClick={submit} disabled={busy || text.trim().length < 3}
-          className={`ml-auto grid size-9 place-items-center rounded-full transition-all ${text.trim().length >= 3 && !busy ? `${accent} text-black` : "bg-white/[.07] text-mute"}`}>
+          className={`ml-1 grid size-9 place-items-center rounded-full transition-all ${text.trim().length >= 3 && !busy ? `${accent} text-black` : "bg-white/[.07] text-mute"}`}>
           {busy ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} strokeWidth={2} />}
         </button>
       </div>
