@@ -75,6 +75,17 @@ def by(runs, prefix):
     return out
 
 
+def verdict(better: bool, a_vals, b_vals) -> str:
+    """Pre-registered statistics rule: no claim from a difference smaller than the seed-to-seed
+    range. A favorable difference whose seed ranges overlap is INCONCLUSIVE, not SUPPORTED."""
+    if not better:
+        return "NOT SUPPORTED"
+    a, b = [v for v in a_vals if v == v], [v for v in b_vals if v == v]
+    if a and b and min(a) <= max(b) and min(b) <= max(a):
+        return "INCONCLUSIVE (favorable but within the seed range)"
+    return "SUPPORTED"
+
+
 def fmt(vals):
     if not vals:
         return "n/a"
@@ -160,10 +171,13 @@ def main():
     d1 = fullm > np.nanmean([mean(out["D"][t]["noobs"]) for t in out["D"]])
     d2 = fullm > np.nanmean([mean(out["D"][t]["nohist"]) for t in out["D"]])
     d3 = np.nanmean([mean(out["D"][t]["glimmer"]) for t in out["D"]]) >= 0.5 * fullm
-    L += ["", f"**H-D1 (Spark feedback helps):** {'SUPPORTED' if d1 else 'NOT SUPPORTED'}",
-          f"**H-D2 (history helps):** {'SUPPORTED' if d2 else 'NOT SUPPORTED'}",
-          f"**H-D3 (Glimmer ≥ 50% of Wonder):** {'SUPPORTED' if d3 else 'NOT SUPPORTED'}", ""]
-    out["D_verdicts"] = {"D1": bool(d1), "D2": bool(d2), "D3": bool(d3)}
+    pool = lambda k: [x for t in out["D"] for x in out["D"][t][k]]  # noqa: E731
+    v1 = verdict(d1, pool("full"), pool("noobs"))
+    v2 = verdict(d2, pool("full"), pool("nohist"))
+    v3 = "SUPPORTED" if d3 else ("NOT SUPPORTED" if pool("glimmer") else "PENDING (no runs yet)")
+    L += ["", f"**H-D1 (Spark feedback helps):** {v1}", f"**H-D2 (history helps):** {v2}",
+          f"**H-D3 (Glimmer ≥ 50% of Wonder):** {v3}", ""]
+    out["D_verdicts"] = {"D1": v1, "D2": v2, "D3": v3}
 
     # ---- E: DR envelope widths (GPU) --------------------------------------------------------------
     if args.eval_e:
