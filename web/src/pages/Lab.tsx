@@ -85,14 +85,13 @@ export default function Lab() {
       {/* Hero: one composed block (copy, samples, input) beside the live replay, 1/3 : 2/3, on the first screen. */}
       <div className="grid items-center gap-10 pt-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-14 lg:pt-12">
         <section className="w-full max-w-[440px]">
-          <h1 className="font-medium leading-[1.02] tracking-[-0.04em]" style={{ fontSize: "clamp(40px, min(3.7vw, 7vh), 56px)" }}>
-            <span className="block lg:whitespace-nowrap">Every robot needs</span>
-            <span className="block lg:whitespace-nowrap">a nemesis.</span>
+          <h1 className="font-medium leading-[1.02] tracking-[-0.04em]" style={{ fontSize: "clamp(28px, min(2.65vw, 6vh), 44px)" }}>
+            <span className="block lg:whitespace-nowrap">Describe any situation.</span>
+            <span className="block text-mute lg:whitespace-nowrap">Watch it fall, then adapt.</span>
           </h1>
-          <p className="mt-4 text-lg leading-snug text-mute lg:whitespace-nowrap">Describe any situation. Watch it fall, then adapt.</p>
-          <p className="mt-4 text-[15px] leading-[1.55] text-ink/70">
-            Type it, say it, or show a photo of a real place. Muse turns it into physics, and if the robot falls, it
-            retrains until it doesn't.
+          <p className="mt-5 text-base leading-[1.55] text-ink/75">
+            Describe an attack in plain English, say it out loud, or show a photo of a real place. Muse turns it into
+            physics. If the robot falls, retrain it until it doesn't.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             {SAMPLES.map(([label, text]) => (
