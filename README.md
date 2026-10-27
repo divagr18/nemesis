@@ -1,40 +1,31 @@
 # Nemesis
 
-**An AI red team for robots: it finds how your robot fails, explains why, and fixes it.**
+**Try to break the robot. Then watch it learn.**
 
-Nemesis finds the physical conditions that make a walking robot fall, explains each failure in plain language, and trains the robot to survive them. Anyone can red-team it in plain English, typed or spoken.
+Nemesis is a red team for walking robots that anyone can use. Describe an attack in plain English, say it out loud, or photograph a real place. Meta's Muse models turn it into physics, and a Unitree Go1 runs it in MuJoCo. If the robot falls, one click retrains it until it doesn't, and every fix is regression-tested before it goes live. An autonomous agent does the same on its own and writes up what it found.
 
-1. **Muse Wonder** acts as an adversary. It writes *hypotheses* about why the robot works, such as "the trot relies on rear-foot grip when the yaw command flips", and turns each one into an attack program in a physics DSL.
-2. **CMA-ES** searches each program's free parameters for the **most plausible** failure. It then shrinks that failure to its minimal form.
-3. **Muse Spark** watches every failure on video, names the failure mode, and feeds what it saw back into Wonder's next round of hypotheses.
-4. The robot is **fine-tuned** on a curated bank of these counterexamples. The bank is weighted by learnability, infeasible items are quarantined, and failure families are balanced.
-5. Repeat.
+| | What you do | What happens |
+|---|---|---|
+| **Attack** | Type or say *"wet tiles and a 3 kg backpack"* | **Muse Voice Transcribe** hears it, **Muse Wonder** compiles it into a physics program (friction, payloads, shoves, slopes, weak motors, sensor lag…), and the robot runs it. You watch the original and the live robot in an interactive **3D replay**. |
+| **Patch it** | Click **Train it to survive this** | Nemesis fine-tunes the live robot (PPO on GPU) on your attack, 48 nearby variants and every earlier lesson. A **regression gate** then checks three things: the attack is fixed, the robot still walks, and nothing on a locked 52-scenario gauntlet got worse. Only then does it become the new live version and replay your attack. |
+| **Your world** | Upload a photo or video of a place | **Muse Spark** reads the surface, slipperiness and slope ("packed ice and slush, μ≈0.2"). The robot is tested in that environment. |
+| **Agent mode** | Click **Start investigation** | Wonder runs a tool-using investigation live. It forms hypotheses, searches each attack program with CMA-ES for the most plausible failure, and drops the ones that don't hold. Spark watches every fall, Nemesis measures the safety margin ("falls begin at 108 N"), and the robot is retrained. |
+| **Report** | Open the red-team report | A pentest-style report for any robot version: failure families, top findings with clips, Spark's diagnoses, safety margins, and deployment recommendations written by Wonder ("do not deploy below μ 0.29 while turning"). |
+| **Community** | Just attack it | The robot learns from everyone. Every few successful attacks trigger a community retrain. A lineage view tracks versions, the Hall of Fame shows which version each attack broke, and the leaderboard rewards the *subtlest* attack. |
+| **Open weights** | `NEMESIS_OPEN=1` | The whole loop runs offline on **Muse Glimmer** on one 24 GB GPU, no API key needed ([details](#fully-open-weight-mode)). |
 
-On a Unitree Go1 in MuJoCo MJX, one round of this loop cut falls on held-out hand-written attacks from **27.5% → 13.5%**, and on a domain-randomization-style distribution it never trained on from **57.9% → 38.4%**. The robot did not become timid: on flat ground it walks as far as before (4.5 → 4.6 m in 5 s).
-
-We then ran a pre-registered study of where this beats plain domain randomization and random search, and where it doesn't. The short version:
-- **Attack programs are what make plausible failures findable.** Searching the raw parameter box finds none.
-- **Random programs find more failures than the LLM.** The LLM adds the *why*.
-- **Adversarial training needs no envelope tuning, and matches DR only when DR is hand-tuned.**
-
-See [Results](#results).
+Every attack is also run against our toughest policy. If even that one falls almost every time, the page says *"Physics wins"* instead of pretending it can be trained away.
 
 > Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), *Push the Frontier* theme. Everything in this repo was written during the event; see [What was built during the hackathon](#what-was-built-during-the-hackathon).
 
+**Does the training actually help?** One round of counterexample training cut falls on held-out hand-written attacks from **27.5% → 13.5%** without making the robot timid (4.5 → 4.6 m walked in 5 s). We also ran a pre-registered study against domain randomization and random search; see [Results](#results). The short version:
+- writing attacks as *programs* is what makes realistic failures findable;
+- the LLM's edge is explanation and interface, not raw search;
+- adversarial training matches hand-tuned DR, with no tuning needed.
+
 ---
 
-## Why
-
-Robots trained in simulation fail in the real world in ways nobody predicted, and when they fail, nobody can tell you why. The standard defense is **domain randomization (DR)**: perturb everything at random during training. It works well, and our experiments confirm it's a strong training method, but it's blind. It needs a human to choose what to randomize, and it never tells you what breaks.
-
-Nemesis replaces guessing with a search for failures:
-- an LLM proposes **structured, compositional** attacks a fixed randomization range can't express (ice you walk *onto*, a shove timed *during* a turn, a command reversal *while* slipping);
-- an optimizer finds the most plausible version of each attack;
-- a vision model explains what went wrong.
-
-The robot then learns from exactly those failures.
-
-## How it works
+## How it works: the attack engine
 
 ```
  "the gait relies on rear-foot grip            ┌──────────────┐  JSON program   ┌────────────────┐
@@ -74,9 +65,9 @@ The robot then learns from exactly those failures.
 
 | Model | Role |
 |---|---|
-| **Muse Wonder** (`muse-wonder-1.0`) | The adversary. Writes hypotheses and attack programs, and translates visitors' plain-English attacks into physics. |
-| **Muse Spark 1.3** (video input) | Watches failure clips and names the mode ("front-foot slip forward flip"). Its observations steer Wonder's next round. |
-| **Muse Voice Transcribe** | Spoken attacks on the public page. |
+| **Muse Wonder** (`muse-wonder-1.0`) | Turns visitors' plain-English attacks into physics programs. Runs agent mode as a native tool-calling agent (search, margin, watch, patch). Writes the hypotheses of the automated hunt and the red-team reports. |
+| **Muse Spark 1.3** (image + video input) | Watches failure clips and names the mode ("lateral shove front-leg buckle"). Reads photos of real places into physical parameters (Your world). Its observations steer Wonder. |
+| **Muse Voice Transcribe** | Spoken attacks on the page. |
 | **Muse Glimmer** (open weights, self-hosted via llama.cpp) | Drop-in open-weight adversary (`--proposer glimmer`). With `NEMESIS_OPEN=1` it also translates attacks and watches clips (see [Fully open-weight mode](#fully-open-weight-mode)). |
 
 ## Results
@@ -191,8 +182,18 @@ python -m nemesis.train.ppo --out runs/baseline_v2           # baseline walking 
 python experiments/hunt.py --run runs/baseline_v2 --out runs/hunt
 python experiments/finetune.py --base runs/baseline_v2 --atlas runs/hunt/atlas.jsonl --out runs/ft
 python experiments/run_arm.py --arm nemesis --seed 0 --out runs/arms/nemesis_s0   # one experimental arm
-uvicorn server.app:app --port 8000                           # the "try to break the robot" page
+bash scripts/serve.sh 8000                                   # the page: http://localhost:8000
 ```
+
+The service ([`server/`](server)) is a FastAPI app:
+- `app.py`: attacks, versions, Hall of Fame and leaderboard.
+- `patch_worker.py`: Patch training and the regression gate, run in a subprocess with its own GPU memory.
+- `agent.py`: agent mode.
+- `world.py`: Your world.
+- `report.py`: red-team reports.
+- `jobs.py`: background jobs, streamed to the page as resumable server-sent events.
+
+The page ([`web/dist/`](web/dist)) is build-free ES modules. The 3D replay is three.js playing back poses exported from the simulator (`nemesis/sim/export.py`).
 
 ## Fully open-weight mode
 
