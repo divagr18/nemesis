@@ -1,11 +1,12 @@
 import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import Composer from "../components/Composer";
 import Steps from "../components/Steps";
 import Envelope from "../components/Envelope";
 import PatchPanel from "../components/PatchPanel";
 import Replay from "../components/Replay";
+import ShareButton from "../components/ShareButton";
 import { api, pct, post, runJob, upload } from "../lib/api";
 import { useVersions } from "../lib/live";
 
@@ -76,6 +77,14 @@ export default function Lab() {
   };
 
   const showing = attempts.length ? attempts[attempt] : null;
+  // A shared link (/a/<id>, or ?a=<id>) opens that situation's result.
+  const { id: shared } = useParams();
+  useEffect(() => {
+    const id = shared || new URLSearchParams(location.search).get("a");
+    if (!id) return;
+    api(`/api/attack/${id}`).then(setResult).catch(() => setError("That situation isn't here anymore. Try your own below."));
+  }, [shared]);
+
   const stage = showing ? [showing] : after?.trajs || result?.trajs || showcase?.trajs;
   const labels = showing ? [`attempt · ${showing.label}`] : after ? [`${after.parent}`, `${after.version}`] : result ? ["original", result.version]
     : showcase ? ["original", `trained · ${showcase.version}`] : null;
@@ -261,6 +270,7 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
           <span className="text-faint"> · {pct(r.fall_rate_trained)}</span>
           {r.score > 0 && <span className="ml-3 font-mono text-sm text-ember">+{r.score}</span>}
         </p>
+        {r.id && r.text && <ShareButton id={r.id} text={r.text} />}
         {canPatch && (
           <button onClick={onPatch} disabled={patching}
             className="flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-85 disabled:opacity-40">
