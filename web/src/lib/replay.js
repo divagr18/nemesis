@@ -45,6 +45,11 @@ const CSS = `
 .nr-flash{position:absolute;inset:0;pointer-events:none;opacity:0;
   background:radial-gradient(ellipse at center,rgba(255,91,53,0) 35%,rgba(255,91,53,.55) 100%)}
 .nr-msg{position:absolute;inset:0;display:grid;place-items:center;color:#8b93a7;font:13px "IBM Plex Mono",monospace;padding:16px;text-align:center}
+.nr-src{position:absolute;right:12px;bottom:10px;display:flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;
+  pointer-events:none;font:500 11px/1 "IBM Plex Mono",ui-monospace,monospace;color:rgba(231,233,238,.7);
+  background:rgba(10,10,10,.5);border:1px solid rgba(255,255,255,.07)}
+.nr-src::before{content:"";width:6px;height:6px;border-radius:50%;background:#d7f25d}
+@container (max-width:560px){.nr-src{font-size:10px;padding:4px 7px;right:8px;bottom:8px}}
 .nr-hud{position:absolute;left:14px;top:14px;right:14px;display:flex;flex-wrap:wrap;gap:8px;pointer-events:none}
 .nr-chip{font:500 13px/1 "IBM Plex Mono",ui-monospace,monospace;padding:7px 10px;border-radius:8px;
   background:rgba(10,10,10,.55);border:1px solid rgba(255,255,255,.08);color:#e4e2de;white-space:nowrap;
@@ -382,7 +387,9 @@ export async function mountReplay(container, opts = {}) {
   stage.appendChild(labelRenderer.domElement);
   const hudEl = el('div', 'nr-hud');
   const flashEl = el('div', 'nr-flash');
-  stage.append(flashEl, hudEl);
+  const srcEl = el('div', 'nr-src');
+  srcEl.textContent = 'Simulated in MuJoCo · real physics';
+  stage.append(flashEl, hudEl, srcEl);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COL.bg);

@@ -95,8 +95,8 @@ export default function Lab() {
       <div className="grid items-center gap-10 pt-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-14 lg:pt-12">
         <section className="w-full max-w-[440px]">
           <h1 className="font-medium leading-[1.02] tracking-[-0.04em]" style={{ fontSize: "clamp(36px, min(3.5vw, 7vh), 54px)" }}>
-            <span className="block lg:whitespace-nowrap">Every robot needs</span>
-            <span className="block lg:whitespace-nowrap">a nemesis.</span>
+            <span className="block lg:whitespace-nowrap">Every robot</span>
+            <span className="block lg:whitespace-nowrap">needs a nemesis.</span>
           </h1>
           <p className="mt-5 text-base leading-[1.55] text-ink/75">
             Describe an attack in plain English, say it out loud, or show a photo of a real place.
