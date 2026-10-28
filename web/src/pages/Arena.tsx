@@ -61,8 +61,8 @@ export default function Arena() {
             <span className="text-peri">You</span> <span className="text-faint">vs</span> <span className="text-ember">Muse</span>
           </h1>
           <p className="mt-6 text-base leading-[1.55] text-ink/75">
-            You both write an attack on the same robot, at the same time. The subtlest one that still knocks it over wins.
-            Brute force scores nothing.
+            Each round, you and Muse secretly describe a way to knock the same robot over. The smaller and more realistic
+            the change that still makes it fall, the more points you get. Throwing something huge at it scores zero.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-2.5">
             <Toggle options={[["3", "Best of 3"], ["5", "Best of 5"]]} value={String(rounds)} onChange={(v) => setRounds(+v)} />
@@ -242,11 +242,11 @@ function Reveal({ r, over, onNext }: { r: Round; over: boolean; onNext: () => vo
           {over ? "Result" : "Next round"} <ArrowRight size={15} />
         </button>
       </div>
+      {r.comment && <p className="mx-auto mt-6 max-w-2xl text-center text-[17px] leading-relaxed text-mute">{typed}</p>}
       <div className="mt-6 grid gap-5 md:grid-cols-2">
         <SideCard who="You" s={r.you} other={r.muse} color="bg-peri" text="text-peri" />
         <SideCard who="Muse" s={r.muse} other={r.you} color="bg-ember" text="text-ember" />
       </div>
-      {r.comment && <p className="mx-auto mt-10 max-w-2xl text-center text-[17px] leading-relaxed text-mute">{typed}</p>}
     </div>
   );
 }
