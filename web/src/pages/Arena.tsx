@@ -234,12 +234,7 @@ function Reveal({ r, over, onNext }: { r: Round; over: boolean; onNext: () => vo
   }, [r.round]);
   return (
     <div className="rise mt-10">
-      <div className="grid gap-5 md:grid-cols-2">
-        <SideCard who="You" s={r.you} other={r.muse} color="bg-peri" text="text-peri" />
-        <SideCard who="Muse" s={r.muse} other={r.you} color="bg-ember" text="text-ember" />
-      </div>
-      {r.comment && <p className="mx-auto mt-10 max-w-2xl text-center text-[17px] leading-relaxed text-mute">{typed}</p>}
-      <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="flex items-center gap-2 font-mono text-xs text-faint">
           {verified && <><Check size={13} className="text-acid" /> Muse's attack matches the hash it sealed before you wrote yours</>}
         </p>
@@ -247,6 +242,11 @@ function Reveal({ r, over, onNext }: { r: Round; over: boolean; onNext: () => vo
           {over ? "Result" : "Next round"} <ArrowRight size={15} />
         </button>
       </div>
+      <div className="mt-6 grid gap-5 md:grid-cols-2">
+        <SideCard who="You" s={r.you} other={r.muse} color="bg-peri" text="text-peri" />
+        <SideCard who="Muse" s={r.muse} other={r.you} color="bg-ember" text="text-ember" />
+      </div>
+      {r.comment && <p className="mx-auto mt-10 max-w-2xl text-center text-[17px] leading-relaxed text-mute">{typed}</p>}
     </div>
   );
 }
@@ -293,18 +293,6 @@ function Final({ duel, onRematch }: { duel: Duel; onRematch: () => void }) {
       <h2 className={`text-[64px] font-medium leading-none tracking-[-0.045em] sm:text-[120px] ${w === "you" ? "text-peri" : w === "muse" ? "text-ember" : ""}`}>
         {w === "you" ? "You win." : w === "muse" ? "Muse wins." : "Draw."}
       </h2>
-      <div className="mt-12 divide-y divide-line border-y border-line">
-        {duel.history.map((r) => (
-          <div key={r.round} className="grid gap-x-8 gap-y-2 py-4 text-[15px] sm:grid-cols-2">
-            {(["you", "muse"] as const).map((k) => (
-              <div key={k} className="flex items-baseline justify-between gap-4">
-                <p className="text-mute"><span className="mr-3 font-mono text-xs text-faint">{k === "you" ? "you" : "muse"}</span>{r[k].text}</p>
-                <span className={`font-mono text-sm ${r[k].score > r[k === "you" ? "muse" : "you"].score ? (k === "you" ? "text-peri" : "text-ember") : "text-faint"}`}>{r[k].score}</span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
       <div className="mt-10 flex flex-wrap gap-3">
         {learnable && !job && (
           <button onClick={async () => { try { setJob((await post(`/api/duel/${duel.id}/patch`)).job); } catch (e: any) { setError(e.message); } }}
@@ -317,6 +305,18 @@ function Final({ duel, onRematch }: { duel: Duel; onRematch: () => void }) {
       </div>
       {error && <p className="mt-3 text-sm text-ember">{error}</p>}
       {job && <div className="mt-6"><PatchPanel job={job} /></div>}
+      <div className="mt-12 divide-y divide-line border-y border-line">
+        {duel.history.map((r) => (
+          <div key={r.round} className="grid gap-x-8 gap-y-2 py-4 text-[15px] sm:grid-cols-2">
+            {(["you", "muse"] as const).map((k) => (
+              <div key={k} className="flex items-baseline justify-between gap-4">
+                <p className="text-mute"><span className="mr-3 font-mono text-xs text-faint">{k === "you" ? "you" : "muse"}</span>{r[k].text}</p>
+                <span className={`font-mono text-sm ${r[k].score > r[k === "you" ? "muse" : "you"].score ? (k === "you" ? "text-peri" : "text-ember") : "text-faint"}`}>{r[k].score}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
