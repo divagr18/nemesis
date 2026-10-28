@@ -360,48 +360,44 @@ Each lists its design, the existing code it reuses, and what's done.
 - **Vertical 9:16 lesson clip** (ffmpeg composite): the sentence as a caption, then the fall (parent), the timelapse attempts from #1, then the hold (new version), with the lineage label. A "Share" button gives an X intent with the `/a/<id>` URL, plus a download.
 - **Done when:** pasting `/a/<id>` into an X composer shows the card, and the vertical clip plays on a phone.
 
-### 10. (Stretch) Push it in your browser (planned Oct 28; ~1.5 days, go/no-go after phase 0)
-The live robot walks in your browser in real time (MuJoCo compiled to WebAssembly, running the same policy). You drag it to shove it. If it falls, "Teach it this shove" sends the shove to the server, the usual Patch retrains it, and the new version loads back into the page so you can shove it again. The same loop as Break it, with your hands instead of words.
+### 10. Playground: shove the live robot in your browser (Oct 28, building)
+The live robot walks in your browser in real time: MuJoCo compiled to WebAssembly runs the exact model it trains on, and its policy runs in plain JS. Drag to shove it, steer it, switch between the original and the latest version. If your shove knocks it over, "Teach it this shove" replays the shove on the server, the usual Patch retrains it, and the new version loads straight back into the page: shove it again. The same loop as Break it, with your hands instead of words. Page `/playground`, nav "Playground" (third, after You vs Muse).
 
-**Pieces:**
-- **Physics in the browser:** Google DeepMind's official `@mujoco/mujoco` (WASM + JS bindings, single-threaded build, no special headers).
-- **Policy in the browser:** plain JS, no ONNX runtime. The actor is a 512-256-128 MLP (Brax swish, tanh-squashed mean) over a 3-frame history of Playground's 48-number Go1 state, normalised by running statistics. That is ~200k weights (~0.8 MB float32), exported to a binary per version.
+**Phase 0, de-risk: done, all green (Oct 28).**
+- **Exact model:** npm `@mujoco/mujoco` 3.17.0 = the Python bindings' 3.17.0, so the browser loads load_env's compiled Go1 as a binary `.mjb` (body collisions, feet with their own contact, terrain boxes parked, Playground's PD gains and timestep). The visual meshes and textures are stripped (49 MB → 55 KB, 6 KB gzipped); they never collide and the bodies have explicit inertia, and a shoved rollout is bit-identical on both models (`tests/test_play.py`).
+- **Policy:** the actor (144 → 512 → 256 → 128 → 24, swish, tanh of the mean) plus the observation normalizer as a flat float32 binary, 0.97 MB per version. numpy forward vs Brax's own inference fn: max |diff| 7.7e-7 (v1), 9.4e-7 (v7).
+- **sim2sim on plain C MuJoCo** (the engine the browser runs), `nemesis/export/play.py` Stepper: v1 and v7 both walk 10 s at 1 m/s from 10 headings with 0 falls (0.94-0.96 m/s), with and without sensor noise.
+- **Shoves on plain MuJoCo** (8 headings each): v1 falls from 150 N side shoves held 0.2 s (6/8) and always from 0.4 s; v7 holds 250 N for 0.2 s sideways (0/8). So training carries over to the browser. The browser robot is sturdier than MJX (a 150 N / 0.15 s shove fells v1 1/8 here vs 50-75% on MJX), which is the safe direction: a shove that fells it in the browser fells it on the server too.
+- **JS port** (`web/src/lib/playcore.js`) vs the Python Stepper on node: 2e-7 m apart over 50 walking steps, 1e-4 after a fall (float32 vs float64 dot products, amplified by the fall). 1,856 control steps/s on node: 37x real time.
 
-**Phase 0: de-risk, ≤ 2 h. Stop here if any check fails.**
-- **0a, policy parity:** export `v1` weights (normalizer + 4 dense layers) and write the JS forward pass. On 200 recorded observations, JS actions must match JAX to < 1e-4.
-- **0b, sim2sim (the real risk):** a Python reference stepper on plain C MuJoCo (not MJX). It uses the same Go1 MJCF Playground trains on (feet-only contacts as `load_env` builds it), the same control/sim dt, PD position targets = default pose + action × scale, and Playground's observation built in numpy. Pass: the live policy walks 10 s at 1 m/s on 10 seeds with no fall, and a 150 N side shove looks like MJX's outcome. If it can't walk in C MuJoCo, it won't walk in the browser.
-- **0c, WASM:** load the Go1 MJCF + meshes into `@mujoco/mujoco`'s virtual FS in headless Chrome. Step 1,000 times and measure steps/s; we need ≥ 5× real time on a laptop for a 50 Hz control loop.
+**Phase 1: server (`server/play.py`, a router like brief/share).**
+- `GET /api/play/info`: the model metadata (sensor addresses, default pose, dt, fall thresholds), the live version, the original (v1).
+- `GET /api/play/go1.mjb`: the stripped model, exported once into `<serve dir>/play/` (the server's own MuJoCo writes it, so it always matches the box's version).
+- `GET /api/play/policy/<version>.bin`: each version's actor, exported once and cached (immutable).
+- `POST /api/play/shove {force_x, force_y, duration, command}`: the shove in the robot's heading frame, clamped to the training envelope (≤ 150 N per axis, ≤ 0.5 s; the same caps the DSL has). Becomes a DSL program (command + one push at 2 s), runs as a streamed job through `log_attack` (`source="play"`): original vs live on the evaluator's seeds, a server replay, the fall rates. Kept out of the Hall of Fame, leaderboard and community retrain like `brief`.
+- Training reuses `POST /api/patch {attack_id}` unchanged (same gates: live must fall ≥ 50%, survivable).
 
-**Phase 1: browser stepper, ~3 h.**
-- New page `/play`: load the WASM, model and policy; run the control loop at 50 Hz with the physics substeps.
-- Port the obs builder from the phase-0 Python stepper. Parity test: feed both the same qpos/qvel sequence and require identical observations.
-- Render with the existing three.js replay meshes (`go1_scene.json`), updating body poses from `data.xpos/xquat` each frame.
+**Phase 2: the stage (`web/src/lib/play.js`).**
+- Loads the WASM (dynamic import, its own chunk, 2.7 MB gzipped, only on this page), the model, the info and a policy; one `Stepper` on the main thread (a control step costs < 1 ms).
+- Fixed-step loop: real time accumulator at 50 Hz, at most 4 control steps per frame; if the device can't keep up it runs in slow motion and says so ("0.5x").
+- Renders with the replay's look (`replay.js` exports its helpers: scene assets, materials, grid floor, arrow, CSS): body poses from `data.xpos/xquat` each frame, a chase camera, the floor recentred under the robot.
+- **Shove:** press and drag anywhere on the stage; the drag on the ground plane sets direction and strength (150 N at full stretch), held while you hold, up to 0.5 s (the trainable range); a red arrow pushes into the trunk while it acts. Quick buttons for phones: from the left, from the right, from behind (150 N, 0.3 s).
+- **Steer:** arrow keys / WASD (forward 0-1.5 m/s, turn ±1.2 rad/s); a Walk/Stop button. Default: walking forward at 1 m/s.
+- **Fall:** the wrapper's check; the stage dims, "It fell" with your shove in words (peak and mean force, from which side, how long, what it was doing). Reset puts it back on its feet.
+- Version toggle: Original (v1) / Latest (vN), so you can feel the difference.
 
-**Phase 2: interaction, ~2 h.**
-- **Shoving:** drag the trunk; the force follows the drag (capped at 250 N, drawn as the red push arrow).
-- **Steering:** arrow keys / WASD steer within the training command ranges; on phones, touch drag.
-- **Fall:** the same strict fall check as the evaluator (height / tilt) gives "It fell" plus the recorded shove: peak force, direction relative to heading, duration.
-- **Reset button.**
+**Phase 3: teach it (`web/src/pages/Playground.tsx`).**
+- After a fall: "Teach it this shove" posts the shove; the steps stream; then the server's verdict with its replay (original vs live, same seeds). If the live version falls there too: "Train it to survive this" (the existing PatchPanel: attempts, gate). On accept the new policy loads into the stage: "v14 is live. Shove it again."
+- If the server's robot holds (the browser robot fell, MJX's didn't): say so plainly and suggest a harder shove; no training.
 
-**Phase 3: teach it your shove, ~2–3 h.**
-- `POST /api/push {force_xy, duration}`: compiles a DSL `push` program (force in the start-heading frame; start at 2 s) and logs it like any situation.
-- Runs the usual v1 vs live check, then offers **Train it to survive this** (the existing Patch, early stop, gate).
-- On accept, `GET /api/policy/<version>.bin` (exported once, cached) swaps the browser's policy: "v13 is live. Shove it again."
+**Phase 4: polish.**
+- Loading state with progress (WASM, model, policy); WebGL/WASM unsupported message.
+- Break it hero link: "or shove it yourself".
+- README row, notebook entry, VIDEO_PLAN beat (a 10 s shove-learn-shove clip), memory.
 
-**Phase 4: polish, ~1 h.**
-- Loading states (WASM + meshes ≈ 10 MB, cached).
-- If the device can't keep real time, run in slow motion with a visible "0.5×".
-- Link from the Break it hero: "or push it yourself".
+**Verification.** `tests/test_play.py` (stripping, policy round-trip, numpy vs Brax, walking, JS vs Python when node is present); headless Chrome on the live site: the page loads, the robot walks (trunk x increases), a scripted shove fells v1 and not the latest; one full teach loop on the box (shove → patch → new policy loads).
 
-**Risks:**
-- The MJX → C MuJoCo contact gap (phase 0b decides).
-- Matching Playground's observation exactly (noise, history order, last action).
-- The npm MuJoCo version vs the Python one (MJCF compatibility).
-- Phone performance.
-
-**Fallback if phase 0 fails:** "push it" inside the existing replay. The visitor drags an arrow on the robot and the server simulates that shove (a 10 s round trip, not real time). It keeps the hands-on idea and needs no new infrastructure.
-
-**Why it's worth it:** it's the most shareable moment on the site (shove a robot dog with your mouse, it learns, shove it again), a strong X clip, and an honest demo that the trained policy is a real controller, not a canned video.
+**Risks:** phone performance (WASM + policy is cheap; the renderer is the same as the replay's); the server's MJX disagreeing with the browser (handled in the copy); a Patch on a shove can be rejected by the gate (the PatchPanel already explains rejections).
 
 ### Unscheduled backlog (not picked; only if everything above is green)
 - Fable's big swing A, **reproduce a real fall from video** (de-risk: Spark on 3 real clips).

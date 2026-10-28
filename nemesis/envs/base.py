@@ -93,13 +93,9 @@ def _add_terrain(spec, r: robots.Robot) -> None:
                       group=3, rgba=list(STEP_RGBA))
 
 
-def _rebuild(raw, r: robots.Robot):
-    """Rebuilds the env's model with primitive collision geoms (massless, hidden group 3) and the
-    terrain boxes added, then re-runs the env's id lookup (added geoms can shift geom ids).
-
-    Playground edits its model after loading it (timestep, CCD iterations, PD gains, joint and
-    control ranges, framebuffer); those fields are copied over. tests/test_terrain.py checks that
-    every other field of the robot's bodies and geoms is unchanged."""
+def build_spec(raw, r: robots.Robot):
+    """The env's MJCF as an MjSpec with the robot's primitive collision geoms (massless, hidden
+    group 3) and terrain boxes added; Playground's post-load model edits are not in it."""
     spec = mujoco.MjSpec.from_file(str(raw.xml_path), assets=raw._model_assets)
     for body, name, gtype, size, where in r.extra_geoms:
         g = spec.body(body).add_geom(name=name, type=mujoco.mjtGeom(gtype), size=list(size),
@@ -110,6 +106,17 @@ def _rebuild(raw, r: robots.Robot):
             g.pos = list(where)
     if r.terrain_boxes:
         _add_terrain(spec, r)
+    return spec
+
+
+def _rebuild(raw, r: robots.Robot):
+    """Rebuilds the env's model from build_spec, then re-runs the env's id lookup (added geoms can
+    shift geom ids).
+
+    Playground edits its model after loading it (timestep, CCD iterations, PD gains, joint and
+    control ranges, framebuffer); those fields are copied over. tests/test_terrain.py checks that
+    every other field of the robot's bodies and geoms is unchanged."""
+    spec = build_spec(raw, r)
     old = raw._mj_model
     m = spec.compile()
     m.opt.timestep = old.opt.timestep

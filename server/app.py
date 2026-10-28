@@ -322,9 +322,14 @@ async def log_attack(program: Program, theta: np.ndarray | None = None, text: st
         versions_g1.record({result["id"]: result["fall_rate_trained"]}, result["version"])
         return result
     versions.record({result["id"]: result["fall_rate_trained"]}, result["version"])
-    if source not in ("agent", "brief"):  # deployment-brief situations never trigger a community retrain
+    if source != "agent" and source not in PRIVATE:
         _maybe_community_patch()
     return result
+
+
+# Deploy it situations and Playground shoves: run and logged like any attack, but kept out of the
+# community retrain, the Hall of Fame and the leaderboard (nobody wrote them).
+PRIVATE = ("brief", "play")
 
 
 def _maybe_community_patch():
@@ -335,7 +340,7 @@ def _maybe_community_patch():
     trained = {a for v in versions.all() for a in v["attacks"]}
     live = versions.live()["name"]
     fresh = [r for r in _attacks() if r["broke_trained"] and r.get("survivable", True)
-             and r.get("version") == live and r["id"] not in trained and r.get("source") != "brief"]
+             and r.get("version") == live and r["id"] not in trained and r.get("source") not in PRIVATE]
     if len(fresh) >= COMMUNITY_BATCH:
         job = jobs.new("patch")
         job.community = True
@@ -1072,7 +1077,7 @@ HOF_KEYS = ("id", "text", "clip", "trajs", "fall_rate_trained", "conditions", "t
 @app.get("/api/hall_of_fame")
 def hall_of_fame(limit: int = 20):
     status = versions.status()
-    broke = [r for r in _attacks() if r["broke_trained"] and r.get("source") != "brief"]
+    broke = [r for r in _attacks() if r["broke_trained"] and r.get("source") not in PRIVATE]
     return [{**{k: r.get(k) for k in HOF_KEYS}, "status": status.get(r["id"], {})} for r in broke[-limit:][::-1]]
 
 
@@ -1081,7 +1086,7 @@ def leaderboard(limit: int = 10):
     """Most subtle successful attacks; one entry per attacker (their best)."""
     best = {}
     for r in _attacks():
-        if not r.get("score") or r.get("source") == "brief":
+        if not r.get("score") or r.get("source") in PRIVATE:
             continue
         who = r.get("handle") or ("Nemesis agent" if r.get("source") == "agent" else "anonymous")
         if who == "anonymous":
@@ -1131,12 +1136,13 @@ class SPA(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
-# Feature routers (share links, deployment brief) live in their own modules; included before the
+# Feature routers (share links, deployment brief, Playground) live in their own modules; included before the
 # SPA mount, which catches every other path.
-from server import brief, share  # noqa: E402
+from server import brief, play, share  # noqa: E402
 
 app.include_router(share.router)
 app.include_router(brief.router)
+app.include_router(play.router)
 
 if Path("web/dist").exists():
     app.mount("/", SPA(directory="web/dist", html=True), name="web")
