@@ -762,6 +762,11 @@ P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain h
 - **Shoves are capped to the training envelope:** ≤ 150 N per axis, ≤ 0.5 s. A shove becomes a DSL program (the command it was following, plus one push at 2 s, rotated into the start-heading frame by the turn made by then) and goes through `log_attack` with `source="play"`. It stays out of the Hall of Fame, leaderboard and community retrain (`app.PRIVATE`).
 - **Serving:** the 10.9 MB WASM is excluded from FastAPI's gzip and compressed by Caddy instead, so it never stalls the event loop. The npm build is pinned to exactly 3.17.0, and the page refuses a model written by a different MuJoCo.
 - **Headless Chrome, locally:** mounts in 0.8 s and walks. A quick 150 N shove from the left fells the original, and the fall card reads "Your shove: 149 N from its left for 0.30 s, while walking at 1.0 m/s." A real mouse drag also fells it ("121 N from behind for 0.48 s").
+- **On the live site (T4), the whole loop in headless Chrome:**
+  - **Load:** the page mounts in 7.8 s cold. The WASM is 2.8 MB gzipped (from India to us-east-1). The model is 55 KB and each policy 0.97 MB.
+  - **First shove:** a full-strength drag from behind (129 N, 0.48 s) fells v13. Teach replays it on the server, and the original and v13 both fall 100%. The reference robot falls too, so the page says "Physics wins" and offers no training.
+  - **Second shove:** a quick 150 N shove from its right (0.3 s) fells v13. On the server, the original falls 100% and v13 75%. "Train it to survive this" runs: 11/16 falls before, 4/16 at 1M steps, 2/16 at 2M (early stop). The gate accepts v14, and v14 loads into the stage by itself.
+  - **After training:** the same shove from the right on v14 in the browser, 3 times, 0 falls.
 
 ## Decisions log
 | When | Decision | Why |
