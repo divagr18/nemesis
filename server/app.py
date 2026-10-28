@@ -223,10 +223,11 @@ def simulate(theta: np.ndarray, left: tuple[str, object], right: tuple[str, obje
     qs, trajs = [], []
     report("Preparing the 3D replay")
     for (name, _), r in zip((left, right), recs):
-        q = r["qpos"][0, 0][:t_end]
-        qs.append(q)
         # Poses for the 3D replay; the evaluator's fall time (it also counts body contact).
         fell = bool(r["fell"][0, 0])
+        q = export.hold_after_fall(r["qpos"][0, 0][:t_end], theta, float(r["time_to_fall"][0, 0]) if fell else None,
+                                   ev.env.dt, robot)
+        qs.append(q)
         kw = {"robot": robot} if robot != "go1" else {}
         tr = export.trajectory(ev.env.mj_model, q, theta, ev.env.dt, label=name,
                                fall_time=float(r["time_to_fall"][0, 0]) if fell else None, **kw)

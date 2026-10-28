@@ -271,6 +271,23 @@ def detect_fall(qpos: np.ndarray, dt: float, robot: "str | robots.Robot" = "go1"
     return float(np.argmax(fell) * dt) if fell.any() else None
 
 
+def hold_after_fall(qpos: np.ndarray, theta, fall_time: float | None, dt: float, robot: str = "go1") -> np.ndarray:
+    """On stairs, curbs and ramps only the feet collide with the terrain boxes (envs.base: body-box
+    contacts would make MJX ~5x slower), and a body touching a box is found geometrically and ends
+    the episode as a fall. Recorded past the fall, the body sinks into the step it landed on, so
+    on terrain the pose is held from the fall on. Flat ground keeps the real tumble (bodies do
+    collide with the floor)."""
+    if fall_time is None:
+        return qpos
+    rb, L = robots.get(robot), C.layout(robot)
+    if not rb.terrain_boxes or not terrain.has_terrain(L) or terrain.export_terrain(theta, L, rb.terrain_boxes) is None:
+        return qpos
+    k = min(len(qpos) - 1, int(round(fall_time / dt)) + 1)
+    out = np.array(qpos, copy=True)
+    out[k:] = out[k]
+    return out
+
+
 def trajectory(mj_model: mujoco.MjModel, qpos: np.ndarray, theta, dt: float, stride: int = 2,
                fall_time: float | None | str = "auto", label: str | None = None,
                robot: "str | robots.Robot" = "go1") -> dict:

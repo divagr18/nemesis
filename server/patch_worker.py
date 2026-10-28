@@ -127,6 +127,7 @@ class Attempts:
             q = rec["qpos"][0, j]
             if fell:  # end ~1 s after the fall, like the server's clips
                 q = q[: int(min(len(q), rec["time_to_fall"][0, j] / ev.env.dt + 50))]
+                q = export.hold_after_fall(q, theta, float(rec["time_to_fall"][0, j]), ev.env.dt)
             tr = export.trajectory(ev.env.mj_model, q, theta, ev.env.dt, label=label,
                                    fall_time=float(rec["time_to_fall"][0, j]) if fell else None)
             name = f"{tag}_tl{i}.json"

@@ -337,3 +337,20 @@ def test_body_on_a_step_is_a_fall(go1):
     assert not bool(w.fallen(s.data, jp.asarray(C.NEUTRAL), origin))
     assert not bool(w.fallen(s.data, jp.asarray(ahead), origin))
     assert bool(w.fallen(s.data, jp.asarray(under), origin))
+
+
+def test_replay_holds_the_fall_pose_on_terrain():
+    """Only the feet collide with steps, so past a fall on stairs the recording holds the fall pose
+    (a body would sink into the step); on flat ground the real tumble is kept."""
+    from nemesis.perturb import canonical as C
+    from nemesis.perturb.dsl import compile_program
+    from nemesis.sim.export import hold_after_fall
+
+    q = np.cumsum(np.ones((100, 19)), axis=0)
+    stairs = compile_program({"name": "s", "hypothesis": "h", "ops": [
+        {"op": "stairs", "height": 0.1, "count": 4, "start": 0.8}]}).base
+    held = hold_after_fall(q, stairs, fall_time=1.0, dt=0.02)
+    k = int(round(1.0 / 0.02)) + 1
+    assert np.array_equal(held[:k + 1], q[:k + 1]) and (held[k:] == q[k]).all()
+    assert np.array_equal(hold_after_fall(q, C.neutral(), 1.0, 0.02), q)
+    assert np.array_equal(hold_after_fall(q, stairs, None, 0.02), q)

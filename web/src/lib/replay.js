@@ -268,9 +268,15 @@ function buildRobot(ctx, traj, label, offsetY, ghost) {
   const q0 = new THREE.Quaternion(), q1 = new THREE.Quaternion(), tmp = new THREE.Vector3();
   const tailV = new THREE.Vector3(), dirV = new THREE.Vector3();
   const duration = traj.duration;
+  // On stairs and ramps only the feet collide with the steps (the sim finds a body touching one
+  // geometrically, as the fall), so past the fall a body sinks into the step: hold the fall pose.
+  // Recordings made since the server holds it too look the same; this fixes the older ones.
+  const ter = ov.terrain || {};
+  const holdAt = traj.fall_time != null && ((ter.steps || []).length || (ter.ramps || []).length)
+    ? traj.fall_time + traj.dt : Infinity;
 
   function pose(t) {
-    const f = THREE.MathUtils.clamp(t / traj.dt, 0, nF - 1);
+    const f = THREE.MathUtils.clamp(Math.min(t, holdAt) / traj.dt, 0, nF - 1);
     const i0 = Math.floor(f), i1 = Math.min(i0 + 1, nF - 1), a = f - i0;
     for (const b of bodies) {
       const k = b.userData.k;

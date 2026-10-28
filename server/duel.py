@@ -201,8 +201,9 @@ def play(sim: dict, theta_you: np.ndarray, theta_muse: np.ndarray, key: int, rep
         f0 = bool(rec["fell"][0, 0])
         T = rec["qpos"].shape[2]
         t_end = int(min(T, rec["time_to_fall"][0, 0] / ev.env.dt + 75)) if f0 else T
-        traj = export.trajectory(ev.env.mj_model, rec["qpos"][0, 0][:t_end], th, ev.env.dt, label=who,
-                                 fall_time=float(rec["time_to_fall"][0, 0]) if f0 else None)
+        ft = float(rec["time_to_fall"][0, 0]) if f0 else None
+        traj = export.trajectory(ev.env.mj_model, export.hold_after_fall(rec["qpos"][0, 0][:t_end], th, ft, ev.env.dt),
+                                 th, ev.env.dt, label=who, fall_time=ft)
         fr, subtle = float(fell.mean()), float(max(0.0, 1.0 - implaus[i]))
         cheap = bool(ref[i] >= UNSURVIVABLE)
         out.append({"fall_rate": fr, "seeds": [bool(x) for x in fell], "subtlety": round(subtle, 3), "cheap": cheap,
