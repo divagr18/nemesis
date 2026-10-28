@@ -123,6 +123,9 @@ export default function Lab() {
               onVoice={(wav) => run("Uploading your voice", (r) => upload(`/api/attack_voice?stream=1&robot=${r}`, "audio", wav, "attack.wav"))}
               onFile={(f) => run("Uploading your photo", (r) => upload(`/api/world?stream=1&robot=${r}`, "media", f, f.name))} />
           </div>
+          <Link to="/playground" className="mt-3 inline-flex items-center gap-1.5 text-[13px] text-faint transition-colors hover:text-ink">
+            or shove it yourself <ArrowRight size={13} />
+          </Link>
           {error && <p className="mt-3 text-sm text-ember">{error}</p>}
           {pair && !busy && (
             <div className="rise mt-6 space-y-1.5 text-[15px] text-mute">

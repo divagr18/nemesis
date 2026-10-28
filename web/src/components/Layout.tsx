@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useVersions } from "../lib/live";
 
-const links = [["/", "Break it"], ["/arena", "You vs Muse"], ["/deploy", "Deploy it"], ["/autopilot", "Autopilot"], ["/readiness", "Readiness report"]] as const;
+const links = [["/", "Break it"], ["/arena", "You vs Muse"], ["/playground", "Playground"], ["/deploy", "Deploy it"], ["/autopilot", "Autopilot"], ["/readiness", "Readiness report"]] as const;
 
 export function Mark({ className = "" }) {
   return (

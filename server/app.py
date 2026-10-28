@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -78,7 +79,10 @@ Schema: {schema}
 User attack: {text}"""
 
 app = FastAPI(title="Nemesis")
-app.add_middleware(GZipMiddleware, minimum_size=2048)
+# The Playground's 10.9 MB MuJoCo WASM is left to Caddy's gzip (its own process): compressing it here at
+# level 9 would stall the event loop, and every live job stream with it, on each Playground visit.
+app.add_middleware(GZipMiddleware, minimum_size=2048,
+                   exclude_content_types=(*DEFAULT_EXCLUDED_CONTENT_TYPES, "application/wasm"))
 versions = Versions(ROOT, POLICY)
 versions_g1 = Versions(ROOT / "g1", G1_POLICY)  # the humanoid's own lineage
 _gpu = asyncio.Lock()  # one simulation at a time; everyone else queues

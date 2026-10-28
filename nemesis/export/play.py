@@ -136,7 +136,24 @@ def physics_model(env) -> tuple[mujoco.MjModel, np.ndarray]:
         a, b = getattr(m, f), getattr(full, f)
         b = b[keep] if f.startswith("geom_") else b
         assert np.array_equal(a, b), f"{f} differs after stripping visuals"
+    body_filters(m)
     return m, new_id
+
+
+def body_filters(m: mujoco.MjModel) -> mujoco.MjModel:
+    """Recomputes each body's collision bitmasks from its geoms.
+
+    C MuJoCo's broad phase first filters body pairs by body_contype / body_conaffinity, which the
+    compiler sets to the OR over each body's geoms. load_env turns on the body-floor collisions by
+    editing geom_conaffinity after compiling, so those body masks stay 0 and plain MuJoCo never
+    tests the trunk, thighs and calves against the floor: a fallen robot sinks through it. MJX has
+    no body-level filter, so training and the server never saw this. Fixing the masks changes
+    nothing until a body touches the floor (which is already a fall)."""
+    for b in range(m.nbody):
+        geoms = np.flatnonzero(m.geom_bodyid == b)
+        m.body_contype[b] = np.bitwise_or.reduce(m.geom_contype[geoms]) if len(geoms) else 0
+        m.body_conaffinity[b] = np.bitwise_or.reduce(m.geom_conaffinity[geoms]) if len(geoms) else 0
+    return m
 
 
 def meta(env, m: mujoco.MjModel | None = None, new_id: np.ndarray | None = None) -> dict:

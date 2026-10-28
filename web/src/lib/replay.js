@@ -11,7 +11,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 
-const COL = { bg: 0x0b0d12, crimson: 0xff5b35, cyan: 0xd7f25d, ice: 0x7cc4ff, robot: 0xb4bbc8, floor: 0x0f1218 };
+export const COL = { bg: 0x0b0d12, crimson: 0xff5b35, cyan: 0xd7f25d, ice: 0x7cc4ff, robot: 0xb4bbc8, floor: 0x0f1218 };
 const DTYPES = { float32: Float32Array, uint16: Uint16Array, uint32: Uint32Array, int16: Int16Array, uint8: Uint8Array };
 const Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0);
 const assetCache = new Map();
@@ -28,7 +28,7 @@ async function getJSON(url) {
   return r.json();
 }
 
-function loadAssets(url) {
+export function loadAssets(url) {
   if (!assetCache.has(url)) assetCache.set(url, getJSON(url).catch((e) => { assetCache.delete(url); throw e; }));
   return assetCache.get(url);
 }
@@ -85,7 +85,7 @@ const CSS = `
 @container (max-width:480px){.nr-track{flex-basis:100%;order:-1}.nr-time{min-width:0;margin-right:auto;text-align:left}}
 `;
 
-function injectCSS() {
+export function injectCSS() {
   if (document.getElementById('nr-style')) return;
   const s = document.createElement('style');
   s.id = 'nr-style';
@@ -93,7 +93,7 @@ function injectCSS() {
   document.head.appendChild(s);
 }
 
-function el(tag, cls, html) {
+export function el(tag, cls, html) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
   if (html != null) e.innerHTML = html;
@@ -103,7 +103,7 @@ function el(tag, cls, html) {
 const ICON_PLAY = '<svg viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z"/></svg>';
 const ICON_PAUSE = '<svg viewBox="0 0 16 16"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/></svg>';
 
-function gridTexture(renderer) {
+export function gridTexture(renderer) {
   const n = 512, c = document.createElement('canvas');
   c.width = c.height = n;
   const g = c.getContext('2d');
@@ -122,7 +122,7 @@ function gridTexture(renderer) {
   return t;
 }
 
-function primitive(g) {
+export function primitive(g) {
   const s = g.size;
   switch (g.type) {
     case 'box': return new THREE.BoxGeometry(2 * s[0], 2 * s[1], 2 * s[2]);
@@ -134,7 +134,7 @@ function primitive(g) {
   }
 }
 
-function meshGeometry(m) {
+export function meshGeometry(m) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(unpack(m.vert), 3));
   geo.setIndex(new THREE.BufferAttribute(unpack(m.face), 1));
@@ -144,7 +144,7 @@ function meshGeometry(m) {
   return out;
 }
 
-function makeArrow(mat) {
+export function makeArrow(mat) {
   const group = new THREE.Group();
   const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 16).translate(0, 0.5, 0), mat);
   const head = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 24).translate(0, 0.5, 0), mat);
@@ -163,7 +163,7 @@ function makeArrow(mat) {
 }
 
 // CSS2DRenderer owns the element's transform, so offsets go on an inner element.
-function boxed(inner) {
+export function boxed(inner) {
   const outer = document.createElement('div');
   outer.appendChild(inner);
   return outer;

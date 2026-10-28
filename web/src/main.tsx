@@ -7,6 +7,7 @@ import Agent from "./pages/Agent";
 import Arena from "./pages/Arena";
 import Lab from "./pages/Lab";
 import Places from "./pages/Places";
+import Playground from "./pages/Playground";
 import Report from "./pages/Report";
 
 createRoot(document.getElementById("root")!).render(
@@ -18,6 +19,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="a/:id" element={<Lab />} />
           <Route path="deploy" element={<Places />} />
           <Route path="arena" element={<Arena />} />
+          <Route path="playground" element={<Playground />} />
           <Route path="autopilot" element={<Agent />} />
           <Route path="readiness/:version?" element={<Report />} />
           <Route path="agent" element={<Navigate to="/autopilot" replace />} />

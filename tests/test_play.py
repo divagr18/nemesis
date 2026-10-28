@@ -6,6 +6,7 @@
   (web/scripts/play_parity.mjs, run with node when it is installed).
 """
 
+import copy
 import json
 import shutil
 import subprocess
@@ -36,7 +37,7 @@ def arrays():
     return play.policy_arrays(load_params(POLICY))
 
 
-def _rollout(model, info, arrays, steps=150):
+def _rollout(model, info, arrays, steps=150, fell=None):
     st = play.Stepper(model, info, arrays)
     st.reset(yaw=0.4)
     qs = []
@@ -44,17 +45,32 @@ def _rollout(model, info, arrays, steps=150):
         f = np.array([0.0, -140.0, 0.0]) if 50 <= i < 60 else None
         st.step([1.0, 0.0, 0.3], f)
         qs.append(st.d.qpos.copy())
+        if fell is not None:
+            fell.append(st.fallen())
     return np.array(qs)
 
 
 @needs_policy
 def test_stripped_model_has_identical_dynamics(env, arrays):
-    full = env.unwrapped._mj_model
+    full = play.body_filters(copy.deepcopy(env.unwrapped._mj_model))  # the export fixes these too
     m, new_id = play.physics_model(env)
     assert m.nmeshvert == 0 and m.ntex == 0
     a = _rollout(full, play.meta(env), arrays)
     b = _rollout(m, play.meta(env, m, new_id), arrays)
     assert np.array_equal(a, b)
+
+
+@needs_policy
+def test_fallen_robot_lies_on_the_floor(env, arrays):
+    """Body-floor contacts work on plain MuJoCo (body_filters), so a knocked-over robot doesn't sink."""
+    m, new_id = play.physics_model(env)
+    st = play.Stepper(m, play.meta(env, m, new_id), arrays)
+    st.reset()
+    fell = False
+    for i in range(250):
+        st.step([1.0, 0.0, 0.0], np.array([0.0, -150.0, 0.0]) if 50 <= i < 70 else None)
+        fell |= st.fallen()
+    assert fell and st.d.qpos[2] > 0.03
 
 
 @needs_policy
@@ -117,13 +133,17 @@ def test_js_port_matches_python(tmp_path, env, arrays):
     info = play.meta(env, m, new_id)
     (tmp_path / "go1.json").write_text(json.dumps(info))
     play.write_policy(arrays, tmp_path / "v1.bin", "v1")
-    ref = _rollout(m, info, arrays)
+    fell = []
+    ref = _rollout(m, info, arrays, fell=fell)
     out = subprocess.run(["node", "scripts/play_parity.mjs", str(tmp_path)], capture_output=True,
                          text=True, cwd=ROOT / "web", timeout=300)
     assert out.returncode == 0, out.stderr[-2000:]
-    js = np.array(json.loads(out.stdout))
-    assert js.shape == ref.shape
-    # JS sums the policy's dot products in float64, numpy in float32: ~1e-7 apart while walking,
-    # growing to ~1e-4 once the shove has tipped it over (a fall amplifies any difference).
-    assert np.abs(js[:50] - ref[:50]).max() < 1e-5
-    assert np.abs(js - ref).max() < 1e-3
+    js = json.loads(out.stdout)
+    q, js_fell = np.array(js["qpos"]), js["fell"]
+    assert q.shape == ref.shape
+    # JS sums the policy's dot products in float64, numpy in float32: ~1e-7 apart while walking and
+    # through the shove, and both fall on the same step. Tumbling on the floor afterwards amplifies
+    # any difference, so the comparison stops at the fall.
+    k = fell.index(True)
+    assert js_fell.index(True) == k
+    assert np.abs(q[:k] - ref[:k]).max() < 1e-4

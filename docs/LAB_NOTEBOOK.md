@@ -733,6 +733,36 @@ P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain h
 - **Lesson:** fixed samples drift as the public robot learns. Autopilot is now told what the live robot was already retrained on (as quoted data), and the samples are "Find its weakest spot", "A weak knee on wet tiles" and "Tripping on a curb at a brisk walk".
 - In every run Muse opened with the 5-try notice.
 
+## Oct 28: the Playground (the live robot in the browser)
+
+**Goal:** the live policy walking in the visitor's browser in real time, shoved by hand, and retrained on the shove that knocked it over. Plan: PLAN.md #10.
+
+**Phase 0 (de-risk), all green:**
+- **The exact model.** npm `@mujoco/mujoco` 3.17.0 is the same MuJoCo as the Python bindings (3.17.0, also on the box), so the browser loads load_env's compiled Go1 as a binary `.mjb`, with no hand-written XML to drift. Stripping the visual meshes and textures took it from 49 MB to 55 KB (206k mesh faces, an 800 × 4800 skybox). They never collide, and the Go1's bodies carry explicit inertia, so a shoved rollout is bit-identical on both models.
+- **The policy.** Exported the actor (144 → 512 → 256 → 128 → 24, swish, tanh of the mean) plus the observation normalizer as one float32 binary, 0.97 MB per version. The numpy forward pass matches Brax's inference fn to 7.7e-7 (v1) and 9.4e-7 (v7).
+- **sim2sim.** On plain C MuJoCo, with Playground's observation rebuilt in numpy, v1 and v7 both walk 10 s at 1 m/s from 10 headings with 0 falls (0.94–0.96 m/s), with and without sensor noise.
+- **Shoves on plain MuJoCo, 8 headings each:**
+
+  | Shove | v1 falls | v7 falls |
+  |---|---|---|
+  | 150 N from the left, 0.2 s | 6/8 | 0/8 |
+  | 150 N from the left, 0.4 s | 8/8 | 0/8 |
+  | 250 N from the left, 0.2 s | 8/8 | 0/8 |
+  | 200 N from behind, 0.2 s | 8/8 | 6/8 |
+
+  Training carries over to the browser engine. The plain-MuJoCo robot is sturdier than MJX's: a 150 N, 0.15 s shove fells v1 1/8 here vs 50–75% on MJX. That is the safe direction, since a shove that fells it in the browser fells it on the server too.
+- **The JS port** (`web/src/lib/playcore.js`) vs the Python stepper, on node: 2.8e-7 m apart until the fall, and both fall on the same control step (67). JS sums the dot products in float64, numpy in float32. 840–1,850 control steps/s on node, against the 50 needed for real time.
+
+**Bug found: a fallen robot sank through the floor on plain MuJoCo.**
+- **Cause:** C MuJoCo's broad phase first filters body pairs by `body_contype` / `body_conaffinity`, which the compiler sets to the OR over each body's geoms. load_env turns on the body-floor collisions by editing `geom_conaffinity` after compiling, so those body masks stayed 0 and plain MuJoCo never tested the trunk, thighs and calves against the floor (4 contacts, the feet, with the trunk at z = −0.33).
+- **MJX** has no body-level filter, so training, the evaluator and every replay were never affected.
+- **Fix:** `play.body_filters` recomputes the masks for the exported model. Nothing changes until a body touches the floor, which is already a fall. The trunk now rests at 0.05–0.15 m after a fall; `tests/test_play.py` checks it.
+
+**Built:** `nemesis/export/play.py` (model + policy export, the reference Stepper), `server/play.py` (`/api/play/info`, `go1.mjb`, `policy/<v>.bin`, `shove`), `web/src/lib/playcore.js` (stepper), `web/src/lib/play.js` (stage, drag-to-shove, steering), `web/src/pages/Playground.tsx`.
+- **Shoves are capped to the training envelope:** ≤ 150 N per axis, ≤ 0.5 s. A shove becomes a DSL program (the command it was following, plus one push at 2 s, rotated into the start-heading frame by the turn made by then) and goes through `log_attack` with `source="play"`. It stays out of the Hall of Fame, leaderboard and community retrain (`app.PRIVATE`).
+- **Serving:** the 10.9 MB WASM is excluded from FastAPI's gzip and compressed by Caddy instead, so it never stalls the event loop. The npm build is pinned to exactly 3.17.0, and the page refuses a model written by a different MuJoCo.
+- **Headless Chrome, locally:** mounts in 0.8 s and walks. A quick 150 N shove from the left fells the original, and the fall card reads "Your shove: 149 N from its left for 0.30 s, while walking at 1.0 m/s." A real mouse drag also fells it ("121 N from behind for 0.48 s").
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
