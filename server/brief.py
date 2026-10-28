@@ -42,10 +42,17 @@ Place: {place}
 
 Write {n} distinct, realistic situations this robot would meet there while working,
 each as ONE attack program with FIXED numbers only (no [lo, hi] ranges), inside the physical envelope.
-Think like a deployment engineer writing a test plan for this exact place: about half everyday
-conditions, and half the hardest moments that realistically happen there in a busy month (usually two
-things at once, e.g. a cart clipping it mid-turn on a freshly mopped floor, or carrying a load down a
-ramp). Every value must stay realistic for that place; no extreme or contrived cases.
+Think like a deployment engineer whose job is to find where this robot falls BEFORE it ships: a test
+plan that only contains things it handles easily is useless. About a third should be the place's
+everyday conditions at their worst (the slipperiest floor, the steepest ramp it has); the other two
+thirds the hardest moments that realistically happen there in a busy month, usually two things at
+once (a cart clipping it mid-turn on a freshly mopped floor, carrying a load down a wet ramp, a shove
+right on a threshold). Pick values from the harsh end of what is realistic for that place, but never
+beyond it; no extreme or contrived cases.
+
+How this robot has fared before, as calibration (measured fall rates of the original robot; use it to
+judge how hard a realistic situation needs to be, do not copy these):
+{calibration}
 - Floors: friction for the surfaces that are actually there (dry concrete ~1.0, wood ~0.6, polished or
   waxed floor 0.35-0.5, freshly mopped tile 0.25-0.35, a spill as a wet or ice segment of a course,
   ice 0.05-0.15).
@@ -162,6 +169,28 @@ def _parse(raw: str) -> tuple[list[dict], list[str]]:
     return good, errors
 
 
+def _calibration(A) -> str:
+    """Situations from the attack log that knocked the original robot over, and ones it shrugged off
+    (their measured conditions, not visitors' words), so Wonder can aim at the edge of what it handles."""
+    def rnd(v):
+        return [rnd(x) for x in v] if isinstance(v, list) else round(v, 2) if isinstance(v, float) else v
+
+    def brief(c: dict) -> str:  # the walking command is the default in nearly all of them; leave it out
+        return json.dumps({k: rnd(v) for k, v in c.items() if not k.startswith("command")})
+
+    rows = [r for r in A._attacks() if r.get("conditions") and r.get("survivable", True)
+            and r.get("fall_rate_baseline") is not None]
+    def pick(rs, k):  # the most recent k distinct ones
+        out = {}
+        for r in reversed(rs):
+            out.setdefault(brief(r["conditions"]), r["fall_rate_baseline"])
+        return list(out.items())[:k]
+
+    lines = [f"- falls {f:.0%}: {c}" for c, f in pick([r for r in rows if r["fall_rate_baseline"] >= 0.75], 6)
+             + pick([r for r in rows if r["fall_rate_baseline"] == 0], 4)]
+    return "\n".join(lines) or "- (no history yet)"
+
+
 def write_situations(place: str) -> list[dict]:
     """8-12 valid situations for the place (one correction round for invalid programs)."""
     from nemesis import config
@@ -172,6 +201,7 @@ def write_situations(place: str) -> list[dict]:
     A = _app()
     slots = "\n".join(f"- {s.name} [{s.unit}] {s.lo}..{s.hi}: {s.doc}" for s in C.layout("go1").SLOTS)
     prompt = PROMPT.format(robot=A.ROBOT_TEXT["go1"], place=json.dumps(place), n=ASK, slots=slots,
+                           calibration=_calibration(A),
                            schema=json.dumps(json_schema("go1")))
     raw = client.respond(prompt, model=config.text_model(), reasoning="medium", tag="brief/situations", json_only=True)
     good, errors = _parse(raw)
