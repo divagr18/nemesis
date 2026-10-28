@@ -171,7 +171,7 @@ export default function Lab() {
             <Replay key={JSON.stringify(stage)} robot={result?.robot || "go1"}
               trajs={stage.map((t: any, i: number) => ({ url: t.url, label: labels?.[i] || t.label }))} className="absolute inset-0" />
           ) : (
-            <Replay trajs={[{ url: "/assets/sample_traj_held.json", label: "" }]} hud={false} className="absolute inset-0" />
+            <Replay trajs={[{ url: "/assets/sample_traj.json", label: "original" }]} className="absolute inset-0" />
           )}
           {busy && (
             <div className="absolute inset-0 grid place-items-center bg-black/60 backdrop-blur-[2px]">

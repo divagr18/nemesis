@@ -865,33 +865,54 @@ async def duel_patch(duel_id: str, request: Request):
 # ---- Showcase: the original robot falls, the trained one holds -------------------------------------
 
 _showcase: dict = {}
+_showcase_tried: dict = {}  # live version -> when a search last found nothing (don't re-search on every visit)
+_showcase_lock = asyncio.Lock()
 SHOWCASE_DIR = ROOT / "showcase"
+
+
+def _last_showcase() -> dict:
+    """The newest showcase saved for an earlier version, so the hero always opens on the original falling."""
+    for p in sorted(SHOWCASE_DIR.glob("v*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        if p.stem.endswith("_preview"):
+            continue
+        s = json.loads(p.read_text())
+        if s.get("trajs") and all((CLIPS / Path(t["url"]).name).exists() for t in s["trajs"]):
+            return s
+    return {}
 
 
 @app.get("/api/showcase")
 async def showcase():
     """The hero's default replay: a situation that knocks the original robot over but that the live
-    version survives, recorded on a seed where exactly that happens. Persisted per live version."""
+    version survives, recorded on a seed where exactly that happens. Persisted per live version; until
+    one is found, the last version's showcase stands in."""
     live = versions.live()["name"]
     path = SHOWCASE_DIR / f"{live}.json"
     if live not in _showcase and path.exists():
         _showcase[live] = json.loads(path.read_text())
     if live in _showcase:
         return _showcase[live]
-    status = versions.status()
-    rows = [r for r in reversed(_attacks()) if r.get("broke_baseline") and r.get("survivable", True)
-            and status.get(r["id"], {}).get(live, 1.0) < 0.5]
-    for r in rows[:6]:  # most recent first; skip any whose recorded seed doesn't show the contrast
-        async with _gpu:
-            s = sim()
-            out = await asyncio.to_thread(simulate, np.asarray(r["theta"], np.float32), ("original", s["original"]),
-                                          (live, s["live"]), True)
-        if out["contrast"] and out["fall_rates"]["original"] >= 0.5 and out["fall_rates"][live] < 0.5:
-            _showcase[live] = {"text": r["text"], "version": live, "trajs": out["trajs"], "fall_rates": out["fall_rates"]}
-            SHOWCASE_DIR.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(_showcase[live]))
-            return _showcase[live]
-    return {}
+    if time.time() - _showcase_tried.get(live, 0) < 900 or _showcase_lock.locked():
+        return _last_showcase()
+    async with _showcase_lock:
+        status = versions.status()
+        known = lambda r: status.get(r["id"], {}).get(live)
+        rows = [r for r in reversed(_attacks()) if r.get("broke_baseline") and r.get("survivable", True)
+                and (known(r) is None or known(r) < 0.5)]
+        # attacks the live version is known to survive first, then ones it hasn't been retested on
+        rows.sort(key=lambda r: known(r) is None)
+        for r in rows[:10]:  # skip any whose recorded seed doesn't show the contrast
+            async with _gpu:
+                s = sim()
+                out = await asyncio.to_thread(simulate, np.asarray(r["theta"], np.float32), ("original", s["original"]),
+                                              (live, s["live"]), True)
+            if out["contrast"] and out["fall_rates"]["original"] >= 0.5 and out["fall_rates"][live] < 0.5:
+                _showcase[live] = {"text": r["text"], "version": live, "trajs": out["trajs"], "fall_rates": out["fall_rates"]}
+                SHOWCASE_DIR.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(_showcase[live]))
+                return _showcase[live]
+        _showcase_tried[live] = time.time()
+    return _last_showcase()
 
 
 _preview: dict = {}
