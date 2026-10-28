@@ -99,8 +99,9 @@ export default function Lab() {
             <span className="block lg:whitespace-nowrap">a nemesis.</span>
           </h1>
           <p className="mt-5 text-base leading-[1.55] text-ink/75">
-            Describe an attack in plain English, say it out loud, or show a photo of a real place. Muse turns it into
-            physics. If the robot falls, retrain it until it doesn't.
+            Describe an attack in plain English, say it out loud, or show a photo of a real place.
+            <br />
+            Muse simulates it with real physics, works out how the robot falls, and retrains it until it doesn't.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             {SAMPLES.map(([label, text]) => (
