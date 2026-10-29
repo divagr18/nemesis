@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Nemesis uptime check every 3 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=3min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

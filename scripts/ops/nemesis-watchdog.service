@@ -1,0 +1,7 @@
+[Unit]
+Description=Nemesis uptime check (restarts nemesis only after repeated connection errors or 5xx)
+After=nemesis.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /usr/local/bin/nemesis-watchdog.sh

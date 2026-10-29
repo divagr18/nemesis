@@ -820,6 +820,55 @@ P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain h
   - New simulation work is turned away (503) while 12 simulation jobs are in flight. This is checked before any quota or model call is spent.
   - Retrains: one training plus two waiting. A retrain on the same attacks joins the one already queued.
 
+## Oct 29: before going public (moderation, backups, uptime, the Nov 17 stop)
+
+**Moderation of visitor text (`server/moderation.py`).** Until now visitor text and handles were shown verbatim to everyone. Where they appeared:
+- Hall of Fame and leaderboard (texts, handles)
+- the duel lobby (the human's text, Muse's, and the commentary on both)
+- share links: `/api/attack/<id>`, the `/a/<id>` link preview, the `/og` card and the `/v` vertical clip (the GIF has no text)
+- the hero showcase, Readiness report findings (and Wonder's summary of them), version changelogs (Wonder writes them from the trained texts)
+- the retrain stream anyone can join through `/api/patching`, and the Autopilot goal (others can join an investigation)
+
+How it works:
+- Each text is checked once by Muse Spark (contributor tier, `reasoning=low`, strict JSON schema, tag `moderation/text` or `moderation/handle`), so it shows in the spend ledger. The text is quoted as a JSON string, and the model is told to treat it as data only.
+- Flagged: slurs and hate, harassment of real people, sexual content, personal information, spam and links. Violence against the robot is the point of the site and is never flagged. Links and a small handle blocklist (slurs, and names like `admin` or `official`) are caught without a model call.
+- Verdicts go to `<serve dir>/moderation/verdicts.jsonl`, keyed by a hash of the normalized text; the text itself is not copied there.
+- Public lists fail closed. An unchecked text is queued for a background check and stays hidden until it passes. A new attack is queued as soon as it is logged, so attack latency doesn't change. Share pages and cards check on the spot.
+- A flagged attack's link still unfurls, with a generic caption and no sentence, handle, photo or place reading. Generic cards and clips are cached under their own names, so a card rendered before an admin hid it is never served again.
+- The robot runs every attack, and the visitor sees their own result on Break it.
+- Photos from "a real place" are never served through a share link (`/api/attack/<id>` leaves out `media`). The photo is not moderated, and Hall of Fame entries link to it.
+- Admin, over SSH: `cd ~/muse && NEMESIS_SERVE_DIR=runs/serve_dev ~/.venvs/nemesis/bin/python -m server.moderation list | hide <id> | unhide <id> | reset <id> | backfill`. The running server picks up changes within 2 s without a restart.
+
+**Backups.**
+- Amazon Data Lifecycle Manager policy `policy-0baa9fdd70b2ce9bf` snapshots the root volume `vol-0fdd4bba98c51bfa2` every day at 07:00 UTC and keeps 7. It targets the volume by its tag `Backup=nemesis-daily`.
+- The first snapshot, `snap-0b5b738d25f79ca01`, was taken by hand on Oct 29.
+- All snapshots are tagged `Project=nemesis`.
+- The root volume holds everything: `runs/serve_dev` (lineage, checkpoints, attack log, clips, duels, briefs), `runs/spend.jsonl`, the moderation verdicts and `.env` (the API key, so the snapshots stay private).
+
+Restore:
+1. `aws ec2 describe-snapshots --region us-east-1 --filters Name=tag:Project,Values=nemesis` to pick a snapshot.
+2. `aws ec2 create-volume --region us-east-1 --availability-zone us-east-1f --snapshot-id <snap> --volume-type gp3 --tag-specifications 'ResourceType=volume,Tags=[{Key=Project,Value=nemesis}]'`.
+3. To roll the whole box back: stop it (`scripts/deploy.sh down`), detach the old root volume, attach the new one as `/dev/sda1`, and start it (`scripts/deploy.sh up`). Keep the old volume until the site checks out.
+4. To recover only the lineage: attach the new volume to the running box as `/dev/sdf`, find it with `lsblk`, and mount its first partition read-only (for example `sudo mount -o ro /dev/nvme2n1p1 /mnt/restore`), copy `runs/serve_dev` back, unmount, then detach and delete the volume.
+
+**Uptime.**
+- `nemesis-watchdog.timer` on the box (`scripts/ops`, installed with `scripts/deploy.sh ops`) curls `localhost:8000/api/limits` every 3 minutes.
+- It restarts `nemesis` only after 3 checks in a row get a refused or reset connection or a 5xx.
+- A timeout (90 s) counts as busy, not down. It leaves the service alone for 10 minutes after a (re)start and when the service was stopped on purpose, and restarts at most once an hour.
+- Logs: `journalctl -u nemesis-watchdog`.
+- Because timeouts never count, a hung process that still accepts connections is not caught.
+- CloudWatch alarm `nemesis-web-system-status-failed` fires on `StatusCheckFailed_System` after 3 minutes. It has no actions: EC2 recover is not supported on g4dn.xlarge (`AutoRecoverySupported: false`, because of its instance store).
+- An EventBridge rule that would stop and start the box (`AWS-RestartEC2Instance`, role `nemesis-web-host-recovery`) was prepared but not created. Its creation was blocked pending the user's decision.
+- No notifications are set up.
+
+**The Nov 17 stop.** `InstanceInitiatedShutdownBehavior` is `stop`, so a shutdown from the box can't terminate it. Two independent stops:
+- EventBridge Scheduler `nemesis-web-stop-2026-11-17`: `at(2026-11-17T18:00:00)` UTC calls `ec2:StopInstances` on `i-0c84eb3c597c7d053`. The role `nemesis-autostop-scheduler` may only stop that instance.
+- `nemesis-autostop.timer` on the box: `shutdown -h now` at 18:05 UTC. It is not persistent, so if the box is started again later the elapsed timer won't fire at boot.
+
+To keep the box up past Nov 17:
+1. `aws scheduler delete-schedule --region us-east-1 --name nemesis-web-stop-2026-11-17`
+2. `sudo systemctl disable --now nemesis-autostop.timer` on the box.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
