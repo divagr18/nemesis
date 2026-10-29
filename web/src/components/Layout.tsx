@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useVersions } from "../lib/live";
+import RestingBanner from "./RestingBanner";
 
 const links = [["/", "Break it"], ["/arena", "You vs Muse"], ["/playground", "Playground"], ["/deploy", "Live deployment"], ["/autopilot", "Autopilot"], ["/readiness", "Readiness report"]] as const;
 
@@ -31,6 +32,7 @@ export default function Layout() {
           {v && <span className="ml-2 hidden shrink-0 rounded-full bg-white/[.06] px-3.5 py-2 font-mono text-[13px] text-mute md:block">{v.live}</span>}
         </div>
       </header>
+      <RestingBanner />
       <main className="mx-auto w-full max-w-7xl flex-1 px-5 pt-8 pb-24 sm:px-8"><Outlet /></main>
       <footer className="mx-auto flex w-full max-w-7xl flex-wrap justify-between gap-4 border-t border-line px-5 py-8 text-xs text-faint sm:px-8">
         <span>Muse Wonder · Muse Spark · Muse Voice Transcribe · Muse Glimmer · MuJoCo MJX</span>
