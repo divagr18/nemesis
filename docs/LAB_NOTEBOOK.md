@@ -890,6 +890,18 @@ To keep the box up past Nov 17:
 1. `aws scheduler delete-schedule --region us-east-1 --name nemesis-web-stop-2026-11-17`
 2. `sudo systemctl disable --now nemesis-autostop.timer` on the box.
 
+**Cold-open stairs on v14** (the box's live checkpoint, retrained on the laptop with the box's settings: local profile, 1024 envs, 8M cap with early stop):
+
+| Situation | Before → after (falls, gate suite) | Training | Gate |
+|---|---|---|---|
+| 3 × 5 cm wet steps (μ 0.4) + 4 kg backpack | 69% → 62% | full cap (9.2M), ~14 min; attempts 62, 62, 88, 31, 38, 50, 56, 56% | rejected |
+| 3 × 6 cm wet steps (μ 0.35) | 69% → 25% | full cap (9.2M), ~16 min; attempts 44, 31, 75, 38, 31, 38, 50, 25% | **accepted** |
+
+- Before training, the reference robot falls 69% and 56% on these, so both count as survivable. Nominal walking and the gauntlet are unchanged.
+- **Neither stops early:** the stop needs ≤ 2/16 falls. Stairs learn slowly and noisily, as the attempts above show.
+- **For the cold open:** the wet-steps retrain gets a verdict that passes the gate but still falls 1 in 4. On camera that needs the full ~16 min on a T4, or ~5 min on an L40S. The "it holds" shot can then use a seed where the new version holds.
+- **A fast alternative:** the Playground shove, 11/16 → 2/16 falls with an early stop at 2M.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|

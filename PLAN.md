@@ -292,7 +292,7 @@ All of features 1–8 and the #10 stretch are built and live at nemesis.divagr.c
 ### Left
 | # | Task | Done when |
 |---|---|---|
-| L1 | **Cold-open stairs situation** (being tested). Candidates on v14: "3 × 5 cm wet steps + a 4 kg backpack", "3 × 6 cm wet steps" | Live robot falls ≥ 50%, the retrain holds within 8M steps, the gate accepts |
+| L1 | **Cold-open stairs situation: tested Oct 30.** "3 × 6 cm wet steps" on v14: 69% → 25%, gate accepts, but only at the full 8M cap (no early stop; ~16 min on a T4). With the backpack it doesn't learn (rejected). Use the wet steps with the chips sped up, or the Playground shove (stops at 2M) | Chosen at the dry run |
 | L2 | **Filming box:** an L40S for real-time retraining, same build as the site | A retrain finishes on camera in about a minute |
 | L3 | **Dry run** of every VIDEO_PLAN beat | Each beat recorded once; fixes listed |
 | L4 | **Real photos:** 3–4 places (porch steps, wet tiles, a ramp) | SAM counts the steps correctly on each |
