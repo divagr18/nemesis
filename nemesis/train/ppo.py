@@ -85,6 +85,7 @@ def train(
     learning_rate: float | None = None,
     num_eval_envs: int | None = None,
     stop_fn=None,
+    run_evals: bool = True,
 ):
     """Trains a policy.
 
@@ -92,6 +93,7 @@ def train(
     obs history, theta-aware critic, per-episode DR) on nominal scenarios unless `env` is given.
     Pass `env`/`eval_env` (already NemesisWrapper-wrapped) to train on a scenario bank.
     `stop_fn(step, params) -> bool` is called after every checkpoint; True ends training there.
+    run_evals=False skips Brax's own eval episodes (progress lines still print, without a reward).
     """
     from nemesis.perturb.wrapper import NemesisWrapper
 
@@ -150,6 +152,7 @@ def train(
             policy_params_fn=save_ckpt,
             restore_params=restore_params,
             seed=seed,
+            run_evals=run_evals,
             **kw,
         )
     except _Stop:
