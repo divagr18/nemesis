@@ -39,7 +39,7 @@ from nemesis import config
 from nemesis.llm import client, ledger
 from nemesis.perturb import canonical as C
 from nemesis.perturb.dsl import Program, compile_program, json_schema
-from server import jobs, limits
+from server import jobs, limits, moderation
 from server.versions import Versions
 
 ROOT = Path(os.environ.get("NEMESIS_SERVE_DIR", "runs/serve"))
@@ -355,6 +355,10 @@ async def log_attack(program: Program, theta: np.ndarray | None = None, text: st
     ROOT.mkdir(parents=True, exist_ok=True)
     with open(LOG, "a") as f:
         f.write(json.dumps(result) + "\n")
+    if source not in PRIVATE:  # checked in the background; public lists show it once it passes
+        moderation.submit("text", text, result["id"])
+        if handle:
+            moderation.submit("handle", handle, result["id"])
     if robot != "go1":  # the humanoid has its own lineage; Patch and the community loop are Go1-only for now
         versions_g1.record({result["id"]: result["fall_rate_trained"]}, result["version"])
         return result
@@ -507,7 +511,8 @@ async def run_patch(attacks: list[dict], job: jobs.Job) -> dict:
                str(work / "thetas.npy"), "--bank", str(versions.bank_path), "--out", str(out),
                "--steps", str(PATCH_STEPS), "--clips", str(CLIPS), "--tag", f"{job.id}_{name}"]
         env = {**os.environ, "XLA_PYTHON_CLIENT_MEM_FRACTION": PATCH_MEM}
-        await job.emit("started", version=name, parent=parent["name"], attacks=[a["text"] for a in attacks])
+        await job.emit("started", version=name, parent=parent["name"],  # anyone can watch a retrain
+                       attacks=[a["text"] if moderation.attack_ok(a) else moderation.HIDDEN for a in attacks])
         proc = await asyncio.create_subprocess_exec(*cmd, env=env, stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT)
         final, tail = None, []
@@ -543,7 +548,8 @@ async def run_patch(attacks: list[dict], job: jobs.Job) -> dict:
                    "clip": replay["clip"], "trajs": replay["trajs"], "fall_rates": replay["fall_rates"]}
         await job.emit("verified", **outcome)
         try:
-            sentence = await asyncio.to_thread(explain_learning, replay["clip"], replay["trajs"], attacks[0]["text"])
+            seen = attacks[0]["text"] if moderation.attack_ok(attacks[0]) else "a situation a visitor described"
+            sentence = await asyncio.to_thread(explain_learning, replay["clip"], replay["trajs"], seen)
             outcome["learned"] = sentence
             await job.emit("learned", sentence=sentence)
         except Exception:  # noqa: BLE001  (the explanation is a bonus; the patch already succeeded)
@@ -564,7 +570,7 @@ async def _retest(job: jobs.Job, version: str):
         res = await asyncio.to_thread(s["ev"], s["live"], np.array([r["theta"] for r in broke], np.float32),
                                       RETEST_SEEDS, 99)
     versions.record({r["id"]: float(f) for r, f in zip(broke, res["fell"].mean(1))}, version)
-    still = [r["text"] for r, f in zip(broke, res["fell"].mean(1)) if f >= 0.5]
+    still = [r["text"] for r, f in zip(broke, res["fell"].mean(1)) if f >= 0.5 and moderation.attack_ok(r)]
     try:
         note = await asyncio.to_thread(changelog, version, still)
         versions.annotate(version, changelog=note)
@@ -607,7 +613,8 @@ def one_line(text: str, max_chars: int = 220) -> str:
 
 def changelog(version: str, still_breaking: list[str]) -> dict:
     v = next(x for x in versions.all() if x["name"] == version)
-    texts = [r["text"][:160] for r in _attacks() if r["id"] in set(v["attacks"])]
+    # The changelog is public, so Wonder only sees texts that passed moderation.
+    texts = [r["text"][:160] for r in _attacks() if r["id"] in set(v["attacks"]) and moderation.attack_ok(r, wait=True)]
     gate = v.get("gate") or {}
     prompt = ("Write a two-line changelog, for non-experts, for a walking robot policy that was retrained into version "
               f"{version} (from {v['parent']}). The quoted strings below are situation descriptions typed by website "
@@ -726,10 +733,12 @@ async def agent(body: AgentIn, request: Request):
             return {"job": running[-1].id, "joined": True}  # watch the investigation in progress (free)
     _rate_limit(request.client.host, "agent")
     job = jobs.new("agent")
+    # Others can join and watch the investigation, and the goal steers what Wonder says in it.
+    goal = body.goal if await asyncio.to_thread(moderation.text_ok, body.goal, True) else ""
 
     async def go():
         async with _agent_running:
-            await Agent(job, Ctx, body.goal).run()
+            await Agent(job, Ctx, goal).run()
     jobs.spawn(job, go())
     return {"job": job.id, "joined": False}
 
@@ -897,8 +906,11 @@ def recent_duel_round():
     files = sorted(DUEL_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True) if DUEL_DIR.exists() else []
     for f in files[:20]:
         d = json.loads(f.read_text())
-        for r in reversed(d["history"]):
-            if max(r["you"]["fall_rate"], r["muse"]["fall_rate"]) >= 0.5:
+        if moderation.hidden(d["id"]):
+            continue
+        for r in reversed(d["history"]):  # both texts and the commentary must have passed moderation
+            if max(r["you"]["fall_rate"], r["muse"]["fall_rate"]) >= 0.5 and all(
+                    moderation.text_ok(t) for t in (r["you"]["text"], r["muse"]["text"], r.get("comment", ""))):
                 return {"duel": d["id"], "round": r["round"], "version": d["version"], "you": r["you"], "muse": r["muse"],
                         "comment": r.get("comment", "")}
     return {}
@@ -950,6 +962,11 @@ def _last_showcase() -> dict:
 
 @app.get("/api/showcase")
 async def showcase():
+    s = await _showcase_pick()
+    return {**s, "text": s["text"] if moderation.text_ok(s["text"]) else None} if s.get("text") else s
+
+
+async def _showcase_pick():
     """The hero's default replay: a situation that knocks the original robot over but that the live
     version survives, recorded on a seed where exactly that happens. Persisted per live version; until
     one is found, the last version's showcase stands in."""
@@ -965,7 +982,7 @@ async def showcase():
         status = versions.status()
         known = lambda r: status.get(r["id"], {}).get(live)
         rows = [r for r in reversed(_attacks()) if r.get("broke_baseline") and r.get("survivable", True)
-                and (known(r) is None or known(r) < 0.5)]
+                and (known(r) is None or known(r) < 0.5) and moderation.attack_ok(r)]
         # attacks the live version is known to survive first, then ones it hasn't been retested on
         rows.sort(key=lambda r: known(r) is None)
         for r in rows[:10]:  # skip any whose recorded seed doesn't show the contrast
@@ -1083,6 +1100,8 @@ async def _report(job: jobs.Job, version: str):
     await job.emit("testing", message=f"Re-testing every attack and the 52-scenario gauntlet against {version}…")
     async with _gpu:
         rep = await asyncio.to_thread(R.build, sim(), versions, _attacks(), diagnoses(), version)
+    # Findings are public; hidden texts never reach Wonder's summary either.
+    rep["findings"] = await asyncio.to_thread(lambda: [moderation.redact(f, wait=True) for f in rep["findings"]])
     await job.emit("writing", message="Muse Wonder is writing the summary…")
     rep["summary"] = await asyncio.to_thread(R.summarize, rep)
     REPORTS.mkdir(parents=True, exist_ok=True)
@@ -1106,7 +1125,9 @@ def get_report(version: str):
     path = REPORTS / f"{Path(version).name}.json"
     if not path.exists():
         raise HTTPException(404, "no report yet")
-    return json.loads(path.read_text())
+    rep = json.loads(path.read_text())
+    rep["findings"] = [moderation.redact(f) for f in rep.get("findings", [])]
+    return rep
 
 
 @app.get("/api/limits")
@@ -1137,7 +1158,8 @@ def get_versions():
     vs = versions.all()
     return {"live": versions.live()["name"],
             "versions": [{**{k: v[k] for k in ("name", "parent", "created", "attacks", "gate")},
-                          "changelog": v.get("changelog")} for v in vs],
+                          "changelog": v.get("changelog") if moderation.changelog_ok(v.get("changelog")) else None}
+                         for v in vs],
             "bank": int(len(np.load(versions.bank_path))) if versions.bank_path.exists() else 0}
 
 
@@ -1147,8 +1169,10 @@ HOF_KEYS = ("id", "text", "clip", "trajs", "fall_rate_trained", "conditions", "t
 @app.get("/api/hall_of_fame")
 def hall_of_fame(limit: int = 20):
     status = versions.status()
-    broke = [r for r in _attacks() if r["broke_trained"] and r.get("source") not in PRIVATE]
-    return [{**{k: r.get(k) for k in HOF_KEYS}, "status": status.get(r["id"], {})} for r in broke[-limit:][::-1]]
+    # Fail closed: an attack is listed once its text has passed moderation (server/moderation.py).
+    broke = [r for r in _attacks() if r["broke_trained"] and r.get("source") not in PRIVATE and moderation.attack_ok(r)]
+    return [{**{k: r.get(k) for k in HOF_KEYS}, "handle": moderation.shown_handle(r), "status": status.get(r["id"], {})}
+            for r in broke[-limit:][::-1]]
 
 
 @app.get("/api/leaderboard")
@@ -1156,9 +1180,9 @@ def leaderboard(limit: int = 10):
     """Most subtle successful attacks; one entry per attacker (their best)."""
     best = {}
     for r in _attacks():
-        if not r.get("score") or r.get("source") in PRIVATE:
+        if not r.get("score") or r.get("source") in PRIVATE or not moderation.attack_ok(r):
             continue
-        who = r.get("handle") or ("Nemesis agent" if r.get("source") == "agent" else "anonymous")
+        who = moderation.shown_handle(r) or ("Nemesis agent" if r.get("source") == "agent" else "anonymous")
         if who == "anonymous":
             who = f"anonymous-{r['id'][:4]}"
         if who not in best or r["score"] > best[who]["score"]:

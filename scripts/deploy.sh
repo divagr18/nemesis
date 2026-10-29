@@ -5,6 +5,7 @@
 # No idle auto-stop on this box: it serves visitors.
 #   scripts/deploy.sh up       start (or launch) the box, attach the Elastic IP, install everything
 #   scripts/deploy.sh update   push code (and web/dist) and restart the service
+#   scripts/deploy.sh ops      install the uptime watchdog and the one-off Nov 17 stop timer (scripts/ops)
 #   scripts/deploy.sh logs     tail the service log
 #   scripts/deploy.sh ssh      print the ssh command
 #   scripts/deploy.sh down     stop the box (never terminates)
@@ -130,6 +131,16 @@ sudo systemctl restart nemesis caddy
 EOF
 }
 
+ops() {  # $1 ip; the uptime watchdog and the Nov 17 stop timer (scripts/ops). Never restarts nemesis itself.
+  (cd "$ROOT/scripts/ops" && tar -czf - .) | "${SSH[@]}" "ubuntu@$1" 'set -e; d=$(mktemp -d); tar -xzf - -C "$d"
+    sudo install -m 755 "$d/nemesis-watchdog.sh" /usr/local/bin/nemesis-watchdog.sh
+    sudo install -m 644 "$d"/nemesis-*.service "$d"/nemesis-*.timer /etc/systemd/system/
+    rm -rf "$d"
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now nemesis-watchdog.timer nemesis-autostop.timer
+    systemctl list-timers --no-pager "nemesis-*"'
+}
+
 ip() { read -r _ IP < "$EIP_STATE"; echo "$IP"; }
 
 case "${1:-}" in
@@ -146,11 +157,13 @@ case "${1:-}" in
   update)
     IP=$(ip); sg >/dev/null
     push_code "$IP" && "${SSH[@]}" "ubuntu@$IP" 'sudo systemctl restart nemesis' && echo "updated" ;;
+  ops)
+    ops "$(ip)" ;;
   logs)
     "${SSH[@]}" "ubuntu@$(ip)" 'journalctl -u nemesis -n 80 --no-pager' ;;
   ssh)
     echo "${SSH[*]} ubuntu@$(ip)" ;;
   down)
     aws ec2 stop-instances --region "$REGION" --instance-ids "$ID" --query 'StoppingInstances[0].CurrentState.Name' --output text ;;
-  *) echo "usage: $0 up | update | logs | ssh | down" >&2; exit 2 ;;
+  *) echo "usage: $0 up | update | ops | logs | ssh | down" >&2; exit 2 ;;
 esac
