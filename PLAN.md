@@ -245,46 +245,61 @@ Schedule:
 
 Go1 only for now; the G1 gets terrain later via the same registry hook.
 
-## P12: Forward plan, Oct 27 → submission (approved Oct 27)
+## P12: Forward plan, Oct 27 → submission (approved Oct 27; status Oct 30)
 
 Features 1–8 were picked by the user, with 10 as a stretch. Positioning: describe a situation → the robot faces it → it learns. Build until Nov 3, 3 PM IST; video until Nov 5, 3 AM IST; then submit.
 
-### Status (Oct 27, late)
-**Done:**
-- 0.1 terrain
-- 0.2 H-S (NOT SUPPORTED)
-- 0.4 stable server (scheduled task on the PC; the public site moved to its own box)
-- 0.5 tagline ("Every robot needs a nemesis.")
-- #1 Watch it learn: an attempt per 1M steps, streamed; early stop; 8M cap
-- #5 Spark explains
-- #8 changelog
-- #4 safety map in Break it
-- #2 course physics/DSL (b478396)
+### Status (Oct 30)
+All of features 1–8 and the #10 stretch are built and live at nemesis.divagr.com (g4dn.xlarge, one T4, us-east-1). What remains is one situation for the cold open, filming, the edit and the submission.
 
-**Added and done:**
-- the public site at nemesis.divagr.com (g4dn.xlarge T4)
-- attacks in 8–10 s (mp4 off the request path, startup compile)
-- the replay-after-fall fix
-- Spark on the contributor tier
-- VIDEO_PLAN v4
-- README feature coverage
+**Features: done**
+| # | Feature | Commits | Checked |
+|---|---|---|---|
+| 1 | Watch it learn: an attempt per 1M steps, streamed; early stop; 8M cap | 7816f94, 4c478b5 | Playground retrain: 11/16 → 4/16 → 2/16 falls, early stop at 2M, accepted as v14 |
+| 2 | Route from a sentence: course physics/DSL, replay draws every segment, route line on Break it | b478396, 067d850, 7e28ab8 | Live route check, Oct 30 (below) |
+| 3 | Live deployment (was "Places", then "Deploy it"; route `/deploy`, `/places` redirects), with Wonder's hardening pass | 8fcc1f1, 8b41485, 4458604, 7b0293c, c9547a4 | Station stair climb 100% → 0% after "Train it for this place" (notebook, Oct 27 late) |
+| 4 | Safety map: Break it after a patch; per finding on the Readiness report | a9abd26, 76cbf7b | — |
+| 5 | Spark explains what changed | 7816f94 | — |
+| 6 | Share links (`/a/<id>`, OG cards, fall GIF) and vertical clips; X post text written as a challenge | 7c9f9d9, 388708e, a7b0604, c0c1795, 4367563 | — |
+| 7 | Humanoid on the page: Go1 / Humanoid / Both toggle, warmed at startup | 7305727, 2036fe5 | ~25 s per run on the T4. A G1 retrain from the page is not built |
+| 8 | Version changelog | 7816f94 | — |
+| 10 | Playground: the live robot in the browser (MuJoCo WASM), drag to shove, "Teach it this shove" | f0b12c1, be76c85, a1927e7 | Live, Oct 28: a 150 N shove from the right fell v13; retrain stopped at 2M; v14 held the same shove 3/3 in the browser |
 
-**Done since:**
-- #7 humanoid on the page (toggle, Both, warmed at startup; ~25 s per run on the T4). A G1 patch from the page is not built.
-- #2 course UI: replay draws ramps, descents and every ice patch (067d850); Break it shows the route in order.
-- #4 safety map on the Report, per finding, on request.
-- 0.3 humanoid test bound justified from the pelvis geometry.
-- Autopilot capped at 5 tries on the public site (Muse says so; fair-use note in the UI).
+**Core and fixes: done**
+| Item | Commits |
+|---|---|
+| 0.1 terrain; 0.2 H-S (NOT SUPPORTED); 0.3 humanoid test bound; 0.5 tagline | 7d8d34a, d9fe617, 76cbf7b, 8564c8a |
+| 0.4 stable server: superseded by the always-on public box (`deploy.sh up`) | 3eb777a |
+| Dark clips and cards; live Autopilot check (5 tries per investigation) | d431cf0, 7e28ab8 |
+| Stairs replay fix: the replay holds the fall pose on stairs and ramps | c9547a4 |
+| Uploaded clips deleted from Meta's Files API after use | 8cdd9d4 |
 
-**Left:**
-- #2: a live check of a route sentence on the public site.
-- #3 deployment brief.
-- #6 share pages and vertical clips.
-- 0.6 mobile pass, dark Hall of Fame clips, a live Autopilot check.
-- New: SAM 3.1 in the photo flow (the video's real-place beat); Spark judging duel rounds (optional).
-- A stairs scenario that patches within 8M steps (for the cold open).
-- Filming on an L40S for real-time Patch.
-- #10 stretch.
+**Public-site hardening: done**
+| Item | What | Commits | Done when (met) |
+|---|---|---|---|
+| Spend ledger | Every billed call logged with its price to `runs/spend.jsonl` | 98c08eb | Live: one attack logged at $0.044 |
+| Per-visitor limits | Per minute and per 6 hours, charged before any paid call; `GET /api/limits` | 98c08eb | Live quota read 39 of 40 after one attack |
+| $100 clamp | From $100 tracked spend: clamped limits, ≤ $2/h site-wide; no paid calls from $125; calm banner on the site | 98c08eb, fc90ca1 | `python -m nemesis.llm.ledger` prints the totals |
+| Prompt caching | Cache hints on every Wonder call and Autopilot turn | c970809 | 7,782 of 7,826 input tokens cached; ~$0.044 → ~$0.012 per attack |
+| Queue caps | 503 at 12 simulation jobs in flight; retrains 1 running + 2 waiting, duplicates join | c970809 | — |
+| SAM 3.1 in the photo flow | Steps, puddles, icy ground, ramps outlined; steps numbered from the nearest; SAM's step count goes to Wonder; skipped in open-weight mode | 6c6cbe6, 21ef78a | Doorway photo: 3 steps found (0.77–0.89), Wonder built 3 steps |
+| Live route check | "Out the front door, down three small steps, across an icy driveway, then up a gentle ramp to the street" | 7e2ffb7 (notebook) | Full course built; original fell 75%, v14 held (0%) |
+| Moderation | Visitor text and handles checked once by Spark; public lists fail closed | 5a2316d | — |
+| Backups, watchdog, Nov 17 stop | Daily snapshots (keep 7); watchdog timer; EventBridge stop at 2026-11-17 18:00 UTC plus an on-box timer at 18:05 | 9a35662 | — |
+
+**Not done, off the critical path:** the 0.6 mobile pass at 390 px (no record of it); Spark judging duel rounds (optional); a G1 retrain from the page.
+
+### Left
+| # | Task | Done when |
+|---|---|---|
+| L1 | **Cold-open stairs situation** (being tested). Candidates on v14: "3 × 5 cm wet steps + a 4 kg backpack", "3 × 6 cm wet steps" | Live robot falls ≥ 50%, the retrain holds within 8M steps, the gate accepts |
+| L2 | **Filming box:** an L40S for real-time retraining, same build as the site | A retrain finishes on camera in about a minute |
+| L3 | **Dry run** of every VIDEO_PLAN beat | Each beat recorded once; fixes listed |
+| L4 | **Real photos:** 3–4 places (porch steps, wet tiles, a ramp) | SAM counts the steps correctly on each |
+| L5 | **Glimmer open-weight terminal shot** | `NEMESIS_OPEN=1`, no API key, the loop running on one GPU, recorded |
+| L6 | **Video edit:** judge cut and X cut | Judge cut ≤ 2:59, unlisted on YouTube, link tested logged-out |
+| L7 | **README GIFs** and **thumbnail** | Three GIFs in the README; thumbnail uploaded |
+| L8 | **Repo public, X post, submission** | Repo public; post live; confirmation received |
 
 ### Hard constraints
 - θ stays **D = 80**. The critic's input includes θ, so changing D breaks every checkpoint. Go1 uses 63 slots, and terrain adds ~4, leaving ~13 free. New slots are appended in the padding with neutral = 0, then `THETA_LAYOUT_VERSION` is bumped.
@@ -360,7 +375,7 @@ Each lists its design, the existing code it reuses, and what's done.
 - **Vertical 9:16 lesson clip** (ffmpeg composite): the sentence as a caption, then the fall (parent), the timelapse attempts from #1, then the hold (new version), with the lineage label. A "Share" button gives an X intent with the `/a/<id>` URL, plus a download.
 - **Done when:** pasting `/a/<id>` into an X composer shows the card, and the vertical clip plays on a phone.
 
-### 10. Playground: shove the live robot in your browser (Oct 28, building)
+### 10. Playground: shove the live robot in your browser (Oct 28, done)
 The live robot walks in your browser in real time: MuJoCo compiled to WebAssembly runs the exact model it trains on, and its policy runs in plain JS. Drag to shove it, steer it, switch between the original and the latest version. If your shove knocks it over, "Teach it this shove" replays the shove on the server, the usual Patch retrains it, and the new version loads straight back into the page: shove it again. The same loop as Break it, with your hands instead of words. Page `/playground`, nav "Playground" (third, after You vs Muse).
 
 **Phase 0, de-risk: done, all green (Oct 28).**
@@ -411,17 +426,14 @@ The old stretches S1 (Glimmer), S3 (voice) and S5 (humanoid) are done or folded 
 ---
 
 ### Schedule (IST)
-| When | Lead | Agents in parallel |
-|---|---|---|
-| Oct 27 (rest) | 0.1 merge/verify terrain, 0.2 launch H-S, 0.4 stable server, 0.5 tagline | terrain agent (running) |
-| Oct 28 | #1 timelapse, #5 Spark learned, #8 changelog; 0.2 analysis | #7 humanoid server + assets (agent A); 0.3 test fix |
-| Oct 29 | #4 envelope map; #7 UI | #2 course physics/DSL (agent B, after terrain) |
-| Oct 30 | #2 UI, #3 deployment brief | #6 share pages + vertical clips (agent C) |
-| Oct 31 | L40S end-to-end run of every feature + **filming dry run**; 0.6 polish | fixes from the dry run |
-| Nov 1 | Buffer; #10 stretch (6 h timebox, de-risk first) | — |
-| Nov 2 | README/VIDEO_PLAN rewrite for the new arc (Fable: route sentence → falls → watch it learn → Spark explains → envelope widens → brief); capture footage | — |
-| Nov 3 AM | Public deploy on an L4 at a divagr.com subdomain (`deploy.sh up` with NEMESIS_DOMAIN; user adds the A record); repo public; **feature freeze 3 PM** | — |
-| Nov 3 3 PM → Nov 5 3 AM | Video (36 h), X post, submission | — |
+| When | Task |
+|---|---|
+| Done (Oct 27–30) | Features 1–8, #10 Playground, public-site hardening (see Status) |
+| Now → Nov 3, 3 PM | L1 cold-open situation; L2–L5 filming (L40S box, dry run, real photos, Glimmer shot); fixes from the dry run. **Build freeze Nov 3, 3 PM** |
+| Nov 3, 3 PM → Nov 5, 3 AM | L6 video edit, L7 README GIFs and thumbnail |
+| By Nov 5, 7:30 AM | L8 repo public, X post, submission. Official deadline: **Nov 4, 9 PM ET (Nov 5, 7:30 AM IST)** |
+| Nov 5 → Nov 16 | The site stays up through the community vote (closes Nov 16) |
+| Nov 17, 23:30 | The box stops (EventBridge, 18:00 UTC; on-box timer at 18:05). To keep it up, see the notebook's Oct 29 entry |
 
 ### Files touched (representative)
 - **Server:** `server/app.py` (lead only), `server/patch_worker.py` (#1, #5, #7), `server/versions.py` (#8, #7), new `server/brief.py` (#3), new `server/share.py` (#6), `server/report.py` (#4).
