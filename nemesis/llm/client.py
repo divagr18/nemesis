@@ -296,6 +296,7 @@ def wav_seconds(path: str | Path) -> float:
 
 
 _whisper_model = None
+WHISPER_DIR = os.environ.get("NEMESIS_WHISPER_DIR", os.path.expanduser("~/.cache/nemesis_whisper"))
 
 
 def _whisper(path: str | Path, tag: str) -> str:
@@ -305,8 +306,10 @@ def _whisper(path: str | Path, tag: str) -> str:
     except ImportError:
         raise RuntimeError("voice in open mode needs `pip install faster-whisper` (or unset NEMESIS_OPEN)")
     if _whisper_model is None:
+        # Its own download dir: llama.cpp's container (root) owns ~/.cache/huggingface/hub once it has
+        # fetched Glimmer, so a Whisper download there fails with a PermissionError.
         _whisper_model = WhisperModel(os.environ.get("NEMESIS_WHISPER", "base.en"), device="cpu",
-                                      compute_type="int8")
+                                      compute_type="int8", download_root=WHISPER_DIR)
     import wave
 
     # Decode the PCM WAV ourselves: faster-whisper 1.2.1's PyAV decoder breaks with av 19.

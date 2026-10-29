@@ -226,7 +226,28 @@ The web app ([`web/`](web)) is Vite + React + Tailwind with six pages: Break it,
 scripts/open_up.sh    # Glimmer in llama.cpp (docker-compose.open.yml), then the server on :8000
 ```
 
-Everything else stays the same: the call sites ask `config.text_model()` / `config.vision_model()`, and the disk cache and `runs/llm_log.jsonl` work identically.
+Everything else stays the same: the call sites ask `config.text_model()` / `config.vision_model()`, and the disk cache and `runs/llm_log.jsonl` work identically. Two things are off in open mode: Autopilot (it needs Muse Wonder's native tool calling) and SAM 3.1's outlines on photos (API-only; Glimmer's reading of the photo stands alone).
+
+On a fresh box, `scripts/open_weight_demo.sh` does the setup and drives the loop from the terminal:
+
+```bash
+scripts/open_weight_demo.sh setup     # once: Python env, faster-whisper, llama.cpp's CUDA image, Glimmer's weights
+scripts/open_weight_demo.sh up        # Glimmer, then the server in the background (no key; API URL unreachable)
+scripts/open_weight_demo.sh attack "A gust shoves it sideways while it crosses black ice"
+scripts/open_weight_demo.sh retrain <attack id>   # PPO, the gate, Glimmer's "what it learned" and changelog
+```
+
+**Verified Oct 30** on a fresh g6.xlarge (L4 24 GB, 4 vCPUs) with no `.env`, an empty `MODEL_API_KEY` and the API URL pointed at a closed port: all 28 model calls went to Glimmer (27) or Whisper (1), and the spend ledger stayed empty.
+- Setup: Python env 8.5 min; Glimmer download 3.5 min plus 5 min to load (2.5 min on later starts).
+- Typed attack: 46 s, of which Glimmer's translation is 30–62 s. The first attack after a cold start also waits ~90 s for the simulator to compile.
+- Photo of a place: 69 s (Glimmer reads it in 32 s, then 34 s to translate, 3 s to simulate).
+- Spoken attack: Whisper takes 1.0 s (4.3 s the first time, including the 75 MB download).
+- Moderation: 8.5–9 s per text. Spam and harassment were flagged; a normal situation passed.
+- Retrain to changelog: 7 min (accepted; falls 75% → 0%). That covers PPO, the gate, Glimmer watching the replay (37 s) and the retest plus changelog (35 s). The first retrain on a box compiles for ~2 extra min.
+- You vs Muse: ~4 min a round, because Muse writes its attack at medium reasoning (189 s).
+- VRAM: 17,578 MiB with Glimmer loaded, 20,683 MiB peak during PPO.
+
+The L4 decodes Glimmer at ~15 tokens/s, so text steps take roughly twice as long as on the A10G above. Pick a g5.xlarge if speed matters on camera.
 
 **Hardware.** One 24 GB GPU is enough. Measured on a g5.2xlarge (A10G 24 GB):
 - Glimmer with its vision projector and 24k context uses 17,671 MiB (of 23,028) once loaded.

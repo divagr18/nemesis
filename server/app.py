@@ -334,7 +334,7 @@ async def _handle(text: str, ip: str, handle: str = "", report=lambda *a, **k: N
                   robot: str = "go1") -> dict:
     if not limited:
         _rate_limit(ip)
-    report("Muse Wonder is turning your words into physics")
+    report(f"{config.name(config.text_model())} is turning your words into physics")
     try:
         program = await asyncio.to_thread(translate, text, 500, robot)
         compile_program(program, robot)
@@ -418,7 +418,7 @@ async def attack_voice(request: Request, audio: UploadFile = File(...), live: bo
     path = await _save_voice(audio)
 
     async def run(report):
-        report("Muse Voice Transcribe is listening")
+        report(f"{config.transcriber_name()} is listening")
         text = await asyncio.to_thread(client.transcribe, path, "serve/voice")
         report(f"Heard “{text}”")
         return {"transcript": text, **(await _handle(text, ip, report=report, limited=True, robot=robot))}
@@ -450,10 +450,11 @@ async def world(request: Request, media: UploadFile = File(...), live: bool = Qu
     path.write_bytes(data)
 
     async def run(report):
-        report("Muse Spark is reading your place · SAM 3.1 is outlining it")
+        reader = config.name(config.vision_model())
+        report(f"{reader} is reading your place" + ("" if config.OPEN else " · SAM 3.1 is outlining it"))
         outlining = asyncio.create_task(asyncio.to_thread(W.outline_place, path))
         reading = await asyncio.to_thread(W.read_place, path)
-        report(f"Spark sees {reading['place']}, friction ≈ {float(reading['friction']):.2f}")
+        report(f"{reader.removeprefix('Muse ')} sees {reading['place']}, friction ≈ {float(reading['friction']):.2f}")
         try:
             outline = await outlining
         except Exception:  # noqa: BLE001  (the outlines are a bonus; Spark's reading stands alone)
@@ -464,7 +465,7 @@ async def world(request: Request, media: UploadFile = File(...), live: bool = Qu
             seen += [f"{n} ramp{'s' if n > 1 else ''}" for n in (outline["ramps"],) if n]
             report("SAM 3.1 outlined " + ", ".join(seen), outline=outline)
         text = W.as_attack_text(reading, outline)
-        report("Muse Wonder is turning it into physics")
+        report(f"{config.name(config.text_model())} is turning it into physics")
         try:
             program = await asyncio.to_thread(translate, text, 1200, robot)
             compile_program(program, robot)

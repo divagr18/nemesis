@@ -282,8 +282,10 @@ def spark_label(s: dict, left: str, right: str) -> str:
 # ---- the brief job ------------------------------------------------------------------------------
 
 async def _run(b: dict, report) -> dict:
+    from nemesis import config
+
     A = _app()
-    report("Muse Wonder is writing situations for this place")
+    report(f"{config.name(config.text_model())} is writing situations for this place")
     try:
         written = await asyncio.to_thread(write_situations, b["place"])
     except Exception as e:  # noqa: BLE001  (shown on the page)
@@ -330,7 +332,7 @@ async def _run(b: dict, report) -> dict:
     # situation only if it knocks the original over more often (and isn't a physics-wins case).
     held = [s for s in b["situations"] if s["state"] == "done" and s["fall_v1"] < 0.5]
     if held:
-        report(f"The original held on {len(held)} of {n}. Muse Wonder is making those harder")
+        report(f"The original held on {len(held)} of {n}. {config.name(config.text_model())} is making those harder")
         try:
             rewrites = await asyncio.to_thread(harden, b["place"],
                                                [s for s in b["situations"] if s["state"] == "done"])
@@ -356,13 +358,13 @@ async def _run(b: dict, report) -> dict:
     worst = sorted([s for s in done if max(s["fall_live"], s["fall_v1"]) > 0],
                    key=lambda s: (-s["fall_live"], -s["fall_v1"]))[:3]
     if worst:
-        report("Muse Spark is watching the hardest ones")
+        report(f"{config.name(config.vision_model())} is watching the hardest ones")
 
         async def label(s):
             try:
                 s["label"] = await asyncio.to_thread(spark_label, s, "v1", s["version"])
                 _save(b)
-                report("Muse Spark is watching the hardest ones", label={"index": s["index"], "text": s["label"]})
+                report(f"{config.name(config.vision_model())} is watching the hardest ones", label={"index": s["index"], "text": s["label"]})
             except Exception:  # noqa: BLE001  (labels are a bonus)
                 pass
         await asyncio.gather(*(label(s) for s in worst))
