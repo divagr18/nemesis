@@ -262,10 +262,10 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
   return (
     <div className="rise mt-6">
       {r.reading && (
-        <div className={`mb-5 flex flex-col gap-4 ${r.outline?.items?.length ? "" : "sm:flex-row"}`}>
-          {r.outline?.items?.length
+        <div className={`mb-5 flex flex-col gap-4 ${r.media && r.outline?.items?.length ? "" : "sm:flex-row"}`}>
+          {r.media && (r.outline?.items?.length  // shared links leave the visitor's photo out
             ? <PlaceOutline src={r.media} outline={r.outline} className="max-h-72 max-w-full shrink-0" />
-            : <img src={r.media} alt="" className="size-20 shrink-0 rounded-lg object-cover" />}
+            : <img src={r.media} alt="" className="size-20 shrink-0 rounded-lg object-cover" />)}
           <p className="text-sm leading-relaxed text-mute">
             <span className="text-ink">{r.reading.place}.</span> {r.reading.surface}, friction ≈ {(+r.reading.friction).toFixed(2)}
             {Math.abs(r.reading.slope_deg) >= 1 ? `, ${(+r.reading.slope_deg).toFixed(0)}° slope` : ""}.

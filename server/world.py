@@ -68,10 +68,10 @@ def _upright(path: Path, out: Path, size: int = 1600) -> Path:
 def outline_place(path: Path) -> dict | None:
     """What SAM 3.1 finds in a photo: steps, puddles, icy ground and ramps, each with its box (in pixels of
     the image SAM saw, `size`, and as fractions of it) and mask; steps numbered from the nearest (lowest
-    in the photo). None for videos."""
+    in the photo). None for videos, and in open-weight mode."""
     from concurrent.futures import ThreadPoolExecutor
 
-    if path.suffix.lower() not in IMAGES:
+    if path.suffix.lower() not in IMAGES or config.OPEN:  # SAM 3.1 is API-only; open-weight mode goes without
         return None
     small = _upright(path, path.with_name(path.stem + "_sam.jpg"))
     with ThreadPoolExecutor(len(CONCEPTS)) as pool:
