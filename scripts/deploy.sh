@@ -5,7 +5,7 @@
 # No idle auto-stop on this box: it serves visitors.
 #   scripts/deploy.sh up       start (or launch) the box, attach the Elastic IP, install everything
 #   scripts/deploy.sh update   push code (and web/dist) and restart the service
-#   scripts/deploy.sh ops      install the uptime watchdog and the one-off Nov 17 stop timer (scripts/ops)
+#   scripts/deploy.sh ops      install the uptime watchdog, the daily disk cleanup and the one-off Nov 17 stop timer (scripts/ops)
 #   scripts/deploy.sh logs     tail the service log
 #   scripts/deploy.sh ssh      print the ssh command
 #   scripts/deploy.sh down     stop the box (never terminates)
@@ -131,13 +131,13 @@ sudo systemctl restart nemesis caddy
 EOF
 }
 
-ops() {  # $1 ip; the uptime watchdog and the Nov 17 stop timer (scripts/ops). Never restarts nemesis itself.
+ops() {  # $1 ip; the uptime watchdog, the daily disk cleanup and the Nov 17 stop timer (scripts/ops). Never restarts nemesis itself.
   (cd "$ROOT/scripts/ops" && tar -czf - .) | "${SSH[@]}" "ubuntu@$1" 'set -e; d=$(mktemp -d); tar -xzf - -C "$d"
-    sudo install -m 755 "$d/nemesis-watchdog.sh" /usr/local/bin/nemesis-watchdog.sh
+    sudo install -m 755 "$d/nemesis-watchdog.sh" "$d/nemesis-cleanup.sh" /usr/local/bin/
     sudo install -m 644 "$d"/nemesis-*.service "$d"/nemesis-*.timer /etc/systemd/system/
     rm -rf "$d"
     sudo systemctl daemon-reload
-    sudo systemctl enable --now nemesis-watchdog.timer nemesis-autostop.timer
+    sudo systemctl enable --now nemesis-watchdog.timer nemesis-cleanup.timer nemesis-autostop.timer
     systemctl list-timers --no-pager "nemesis-*"'
 }
 

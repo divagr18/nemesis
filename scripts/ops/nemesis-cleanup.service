@@ -1,0 +1,10 @@
+[Unit]
+Description=Nemesis disk cleanup (old voice uploads, SAM copies, patch inputs, LLM cache; never public files)
+
+[Service]
+Type=oneshot
+User=ubuntu
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+ExecStart=/bin/bash /usr/local/bin/nemesis-cleanup.sh
