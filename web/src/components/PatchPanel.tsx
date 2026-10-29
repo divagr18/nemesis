@@ -11,6 +11,7 @@ export default function PatchPanel({ job, onDone, onTimelapse }: { job: string; 
   const [gate, setGate] = useState<any>(null);
   const [error, setError] = useState("");
   const [versions, setVersions] = useState<[string, string] | null>(null);
+  const [humanoid, setHumanoid] = useState(false);
   const [learned, setLearned] = useState("");
   const [tries, setTries] = useState<any[]>([]);
 
@@ -18,7 +19,7 @@ export default function PatchPanel({ job, onDone, onTimelapse }: { job: string; 
     let alive = true;
     follow(job, (e) => {
       if (!alive) return;
-      if (e.stage === "started") setVersions([e.parent, e.version]);
+      if (e.stage === "started") { setVersions([e.parent, e.version]); setHumanoid(e.robot === "g1"); }
       if (e.stage === "timelapse") onTimelapse?.(e.attempts);
       if (e.stage === "attempt") setTries((xs) => (xs.some((x) => x.n === e.n) ? xs : [...xs, e]));
       if (e.stage in STAGES) setStage(e.stage);
@@ -35,7 +36,7 @@ export default function PatchPanel({ job, onDone, onTimelapse }: { job: string; 
   const checks = gate && [
     ["Fixed", gate.checks["fixes the attack"], `${pct(gate.suites.attacks.before)} → ${pct(gate.suites.attacks.after)} falls`],
     ["Still walks", gate.checks["still walks"], `${gate.suites.nominal.progress_after.toFixed(1)} m in 5 s`],
-    ["Nothing else broke", gate.checks["no regressions"], `${pct(gate.suites.gauntlet.before)} → ${pct(gate.suites.gauntlet.after)} on 52 scenarios`],
+    ["Nothing else broke", gate.checks["no regressions"], `${pct(gate.suites.gauntlet.before)} → ${pct(gate.suites.gauntlet.after)} on ${gate.suites.gauntlet.n ?? 52} scenarios`],
   ];
   return (
     <div className="rise rounded-2xl border border-line bg-panel p-5">
@@ -44,7 +45,7 @@ export default function PatchPanel({ job, onDone, onTimelapse }: { job: string; 
           {error ? <span className="text-ember">{error}</span> : STAGES[stage as keyof typeof STAGES]}
           {!done && !error && <span className="blink text-ember"> ●</span>}
         </p>
-        {versions && <span className="font-mono text-xs text-faint">{versions[0]} → {stage === "rejected" ? versions[0] : versions[1]}</span>}
+        {versions && <span className="font-mono text-xs text-faint">{humanoid && "humanoid "}{versions[0]} → {stage === "rejected" ? versions[0] : versions[1]}</span>}
       </div>
       <div className="mt-4 h-px overflow-hidden bg-line">
         <div className="h-full bg-ember transition-[width] duration-700 ease-out-soft" style={{ width: `${(done ? 1 : stage === "bank" ? 0.04 : stage === "gating" ? 1 : prog) * 100}%` }} />

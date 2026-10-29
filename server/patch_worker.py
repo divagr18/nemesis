@@ -10,10 +10,13 @@ Runs as a subprocess of the server (it needs its own GPU memory for PPO) and pri
      quarter-width envelope, lr 1e-4 (the recipe validated in experiments/finetune.py), with an
      attempt at every checkpoint; training stops once the attack is handled and walking is intact;
   3. regression gate on fixed seeds: the new attacks must fall less, and nominal walking and the
-     locked hand-written + realistic gauntlet must not get worse.
+     locked hand-written + realistic gauntlet must not get worse (the humanoid: its own realistic set).
+
+Robot-aware (--robot go1|g1): the θ layout, envelope, env, PPO config and regression suite are that
+robot's; each robot has its own lineage and bank (server/versions.py).
 
 usage: python -m server.patch_worker --base runs/serve/versions/v1 --thetas new.npy \
-           --bank runs/serve/bank.npy --out runs/serve/versions/v2 --steps 8000000
+           --bank runs/serve/bank.npy --out runs/serve/versions/v2 --steps 8000000 [--robot g1]
 """
 
 import argparse
@@ -39,20 +42,21 @@ def event(stage: str, **kw):
     print("EVENT " + json.dumps({"stage": stage, "t": round(time.time(), 2), **kw}), flush=True)
 
 
-def jitter_cloud(theta: np.ndarray, n: int, rng: np.random.Generator) -> np.ndarray:
+def jitter_cloud(theta: np.ndarray, n: int, rng: np.random.Generator, robot: str = "go1") -> np.ndarray:
     """Variants of one attack: only the slots the attack actually perturbs are jittered."""
     from nemesis.perturb import canonical as C
 
-    active = np.abs(theta - C.NEUTRAL) > 1e-6
+    L = C.layout(robot)
+    active = np.abs(theta - L.NEUTRAL) > 1e-6
     for name in NO_JITTER:
-        active[C.INDEX[name]] = False
-    noise = rng.normal(0.0, JITTER, (n, C.D)) * C.SPAN * active
-    return np.stack([C.clip(theta + z) for z in noise]).astype(np.float32)
+        active[L.INDEX[name]] = False
+    noise = rng.normal(0.0, JITTER, (n, C.D)) * L.SPAN * active
+    return np.stack([L.clip(theta + z) for z in noise]).astype(np.float32)
 
 
-def build_bank(new: np.ndarray, old: np.ndarray, rng: np.random.Generator):
+def build_bank(new: np.ndarray, old: np.ndarray, rng: np.random.Generator, robot: str = "go1"):
     """Fixed-size bank and sampling weights: half the mass on the new attacks, half on replay."""
-    fresh = np.concatenate([np.concatenate([t[None], jitter_cloud(t, CLOUD, rng)]) for t in new])
+    fresh = np.concatenate([np.concatenate([t[None], jitter_cloud(t, CLOUD, rng, robot)]) for t in new])
     if len(fresh) > BANK_SIZE // 2:
         fresh = fresh[rng.permutation(len(fresh))[:BANK_SIZE // 2]]
     room = BANK_SIZE - len(fresh)
@@ -65,18 +69,32 @@ def build_bank(new: np.ndarray, old: np.ndarray, rng: np.random.Generator):
     return bank, weights, fresh
 
 
-def gate(ev, old_params, new_params, attacks: np.ndarray) -> dict:
+def walking(robot: str = "go1") -> np.ndarray:
+    """Nominal physics, walking forward at the robot's nominal speed (Go1: finetune.forward_nominal)."""
+    from nemesis.adversary.baselines import _task_theta
+
+    return _task_theta(robot)
+
+
+def regressions(robot: str = "go1") -> np.ndarray:
+    """What must not get worse: the locked gauntlet's hand-written + realistic scenarios (Go1, 52), or
+    the humanoid's realistic set (experiments/gauntlet.py HUMANOID, 20)."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments"))
-    from finetune import forward_nominal
+    from gauntlet import humanoid
     from gauntlet import load as load_gauntlet
 
+    if robot != "go1":
+        return humanoid(robot)
     g = load_gauntlet()
-    suites = {"attacks": attacks, "nominal": forward_nominal()[None],
-              "gauntlet": np.concatenate([g["hand"], g["realistic"]])}
+    return np.concatenate([g["hand"], g["realistic"]])
+
+
+def gate(ev, old_params, new_params, attacks: np.ndarray, robot: str = "go1") -> dict:
+    suites = {"attacks": attacks, "nominal": walking(robot)[None], "gauntlet": regressions(robot)}
     out = {}
     for name, th in suites.items():
         o, n = (ev(p, th, seeds=GATE_SEEDS, key=4242) for p in (old_params, new_params))
-        out[name] = {"before": float(o["fell"].mean()), "after": float(n["fell"].mean()),
+        out[name] = {"n": len(th), "before": float(o["fell"].mean()), "after": float(n["fell"].mean()),
                      "progress_before": float(o["progress"].mean()), "progress_after": float(n["progress"].mean())}
     a, nom, gt = out["attacks"], out["nominal"], out["gauntlet"]
     checks = {
@@ -92,8 +110,8 @@ class Attempts:
     are not bit-exact across batch sizes) and checks normal walking. Streams one `attempt` event per
     checkpoint and decides when training can stop."""
 
-    def __init__(self, ev, new: np.ndarray, nominal: np.ndarray):
-        self.ev, self.new, self.nominal = ev, new, nominal
+    def __init__(self, ev, new: np.ndarray, nominal: np.ndarray, robot: str = "go1"):
+        self.ev, self.new, self.nominal, self.robot = ev, new, nominal, robot
         self.recs: list[tuple[str, dict]] = []
 
     def __call__(self, step: int, params, label: str | None = None) -> bool:
@@ -127,9 +145,9 @@ class Attempts:
             q = rec["qpos"][0, j]
             if fell:  # end ~1 s after the fall, like the server's clips
                 q = q[: int(min(len(q), rec["time_to_fall"][0, j] / ev.env.dt + 50))]
-                q = export.hold_after_fall(q, theta, float(rec["time_to_fall"][0, j]), ev.env.dt)
+                q = export.hold_after_fall(q, theta, float(rec["time_to_fall"][0, j]), ev.env.dt, self.robot)
             tr = export.trajectory(ev.env.mj_model, q, theta, ev.env.dt, label=label,
-                                   fall_time=float(rec["time_to_fall"][0, j]) if fell else None)
+                                   fall_time=float(rec["time_to_fall"][0, j]) if fell else None, robot=self.robot)
             name = f"{tag}_tl{i}.json"
             (clips / name).write_text(json.dumps(tr))
             out.append({"label": label, "fell": fell, "url": f"/traj/{name}"})
@@ -146,9 +164,14 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--clips", default="", help="where to write timelapse trajectories (served at /traj/)")
     ap.add_argument("--tag", default="patch", help="file prefix for this patch's timelapse")
+    ap.add_argument("--robot", default="go1", choices=("go1", "g1"), help="the base version must be this robot's")
     args = ap.parse_args()
+    robot = args.robot
 
     event("loading")
+    import jax
+
+    from nemesis import robots
     from nemesis.adversary.baselines import envelope
     from nemesis.envs.base import load_env
     from nemesis.perturb.wrapper import NemesisWrapper
@@ -158,37 +181,38 @@ def main():
     rng = np.random.default_rng(args.seed)
     new = np.load(args.thetas).astype(np.float32)
     old = np.load(args.bank).astype(np.float32) if args.bank and Path(args.bank).exists() else np.zeros((0, new.shape[1]), np.float32)
-    bank, weights, fresh = build_bank(new, old, rng)
+    bank, weights, fresh = build_bank(new, old, rng, robot)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     np.save(out / "fresh.npy", fresh)
     event("bank", new=len(new), variants=len(fresh), replayed=int((weights > 0).sum() - len(fresh)))
 
     base = load_params(args.base)
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments"))
-    from finetune import forward_nominal
-
-    ev = Evaluator(NemesisWrapper(load_env()[0], base_dr=False), args.base, horizon=250)
-    attempts = Attempts(ev, new, forward_nominal()[None])
+    ev = Evaluator(NemesisWrapper(load_env(robot=robot)[0], base_dr=False), args.base, horizon=250)
+    attempts = Attempts(ev, new, walking(robot)[None], robot)
     attempts(0, base, label="before")
-    lo, hi = envelope(0.25)
-    env = NemesisWrapper(load_env()[0], bank=bank, bank_weights=weights, nominal_frac=0.5,
+    lo, hi = envelope(0.25, robot)
+    env = NemesisWrapper(load_env(robot=robot)[0], bank=bank, bank_weights=weights, nominal_frac=0.5,
                          uniform_frac=0.1, lo=lo, hi=hi)
-    eval_env = NemesisWrapper(load_env()[0], nominal_frac=1.0)
+    eval_env = NemesisWrapper(load_env(robot=robot)[0], nominal_frac=1.0)
     event("training", steps=args.steps)
     t0 = time.time()
     # A checkpoint every CKPT_EVERY steps (few eval envs: the attempts and the gate are the real checks);
-    # training stops at the first attempt that handles the attack and still walks.
+    # training stops at the first attempt that handles the attack and still walks. The humanoid skips
+    # Brax's eval episodes: 16 envs x 1000 steps took ~170 s per checkpoint on a T4, and nothing reads them.
     stop = lambda step, params: step > 0 and attempts(step, params)  # noqa: E731
-    _, _, steps = train(run_dir=out, num_timesteps=args.steps, num_evals=args.steps // CKPT_EVERY + 1, seed=args.seed,
-                        restore_params=base, env=env, eval_env=eval_env, learning_rate=1e-4, num_eval_envs=16,
-                        stop_fn=stop)
-    event("trained", seconds=round(time.time() - t0, 1), steps=steps)
+    _, _, steps = train(robots.get(robot).env, run_dir=out, num_timesteps=args.steps,
+                        num_evals=args.steps // CKPT_EVERY + 1, seed=args.seed, restore_params=base, env=env,
+                        eval_env=eval_env, learning_rate=1e-4, num_eval_envs=16, stop_fn=stop,
+                        run_evals=robot == "go1")
+    mem = jax.devices()[0].memory_stats() or {}  # the worker's own peak (XLA_PYTHON_CLIENT_MEM_FRACTION caps it)
+    event("trained", seconds=round(time.time() - t0, 1), steps=steps,
+          peak_gb=round(mem.get("peak_bytes_in_use", 0) / 2**30, 2))
 
     event("gating")
     if args.clips:
         event("timelapse", attempts=attempts.timelapse(new[0], Path(args.clips), args.tag))
-    result = gate(ev, base, load_params(out), new)
+    result = gate(ev, base, load_params(out), new, robot)
     (out / "gate.json").write_text(json.dumps(result, indent=1))
     event("done", **result)
 

@@ -161,7 +161,7 @@ export default function Lab() {
                   {after && <button onClick={() => setAttempts([])} className="ml-1 text-xs text-faint hover:text-mute">final comparison</button>}
                 </div>
               )}
-              {after && result && <Envelope attackId={result.id} versions={[versions?.versions[0]?.name || "v1", after.version]} />}
+              {after && result && (result.robot || "go1") === "go1" && <Envelope attackId={result.id} versions={[versions?.versions[0]?.name || "v1", after.version]} />}
             </div>
           )}
         </section>
@@ -257,7 +257,11 @@ export default function Lab() {
 function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPatch: () => void; patching: boolean }) {
   const fell = r.fall_rate_trained >= 0.5;
   const humanoid = (r.robot || "go1") === "g1";
-  const canPatch = r.fall_rate_trained >= 0.5 && r.survivable !== false && !after && !humanoid;
+  const [trainable, setTrainable] = useState<boolean | null>(humanoid ? null : true);  // the humanoid's Patch can be off
+  useEffect(() => {
+    if (humanoid) api<any>("/api/versions?robot=g1").then((v) => setTrainable(!!v.trainable)).catch(() => setTrainable(false));
+  }, [humanoid]);
+  const canPatch = r.fall_rate_trained >= 0.5 && r.survivable !== false && !after && trainable === true;
   const single = humanoid && r.version === "v1";  // the humanoid's lineage has one version so far
   return (
     <div className="rise mt-6">
@@ -292,11 +296,11 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
           </button>
         )}
       </div>
-      {humanoid && fell && <p className="mt-3 text-sm text-faint">Training the humanoid from the page is coming; the quadruped can learn this now.</p>}
+      {humanoid && fell && trainable === false && <p className="mt-3 text-sm text-faint">Training the humanoid from the page isn't available yet; the quadruped can learn this now.</p>}
       {r.survivable === false && r.fall_rate_trained > 0 && (
         <p className="mt-3 text-sm text-faint">Physics wins: even our toughest robot falls {pct(r.reference_fall_rate)} of the time here. Try something subtler.</p>
       )}
-      {after && <p className="mt-3 text-sm text-mute">Replaying it on <span className="text-acid">{after.version}</span>, now live.</p>}
+      {after && <p className="mt-3 text-sm text-mute">Replaying it on <span className="text-acid">{humanoid ? `Humanoid ${after.version}` : after.version}</span>, now live.</p>}
     </div>
   );
 }
