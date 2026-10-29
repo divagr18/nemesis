@@ -170,6 +170,33 @@ def respond(
     return json.loads(out["text"]) if schema else out["text"]
 
 
+def segment(path: str | Path, concept: str, tag: str = "sam") -> dict:
+    """SAM 3.1 on one image for one short noun phrase ("step"): every match as a pixel box with its
+    confidence and its mask as sent (one-bit, base85, covering the box; the page decodes it with Meta's
+    @meta-sam/parser), plus the image size."""
+    import re
+
+    ledger.guard()
+    resp = client().responses.create(
+        model=config.SAM, metadata={"include_confidence": "true", "mask_encoding": "one_bit"},
+        input=[{"type": "message", "role": "user", "content": [
+            {"type": "input_text", "text": concept}, image_item(path)]}])
+    ledger.record(config.SAM, resp.usage.model_dump() if resp.usage else {"images_processed": 1}, tag)
+    out = {"w": 0, "h": 0, "boxes": []}
+    for box, mask in re.findall(r"<\|box;([^|]*)\|>(?:<\|mask;([^|]*)\|>)?", resp.output_text or ""):
+        f = dict(kv.split("=", 1) for kv in box.split(";") if "=" in kv)
+        out["w"], out["h"] = int(f["w"]), int(f["h"])
+        item = {"box": [int(f["x1"]), int(f["y1"]), int(f["x2"]), int(f["y2"])], "c": round(float(f.get("c", 1.0)), 3)}
+        data = dict(kv.split("=", 1) for kv in mask.split(";") if "=" in kv).get("data", "")
+        if data.count(",") >= 2:  # "H,W,<payload>"; the payload is kept whole (a leading ~ means lossless)
+            h, w, payload = data.split(",", 2)
+            item["mask"] = {"encoding": "lossless" if payload.startswith("~") else "one_bit", "payload": payload,
+                            "width": int(w), "height": int(h)}
+        out["boxes"].append(item)
+    _log({"ts": time.time(), "tag": tag, "model": config.SAM, "prompt": concept, "output": out})
+    return out
+
+
 def upload(path: str | Path) -> str:
     """Uploads a file (e.g. an mp4) for use as input_file; returns its file id."""
     with open(path, "rb") as f:

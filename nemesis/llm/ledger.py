@@ -81,6 +81,9 @@ def token_cost(model: str, usage: dict | None) -> tuple[float, dict]:
     counts = {"input": inp, "cached_input": cached, "output": out, "reasoning": reasoning}
     if model in FREE:
         return 0.0, counts
+    if model == "sam-3.1":  # billed per image, not per token
+        counts["images"] = int(u.get("images_processed") or 1)
+        return counts["images"] * SAM_PER_IMAGE, counts
     p = PRICES.get(model, FALLBACK)
     cost = ((inp - cached) * p["input"] + cached * p["cached_input"] + out * p["output"]) / 1e6
     return cost, counts

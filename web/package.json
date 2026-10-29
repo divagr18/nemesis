@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@meta-sam/parser": "0.1.0",
     "@mujoco/mujoco": "3.17.0",
     "lucide-react": "0.460.0",
     "react": "18.3.1",

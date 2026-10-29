@@ -446,10 +446,20 @@ async def world(request: Request, media: UploadFile = File(...), live: bool = Qu
     path.write_bytes(data)
 
     async def run(report):
-        report("Muse Spark is reading your place")
+        report("Muse Spark is reading your place · SAM 3.1 is outlining it")
+        outlining = asyncio.create_task(asyncio.to_thread(W.outline_place, path))
         reading = await asyncio.to_thread(W.read_place, path)
         report(f"Spark sees {reading['place']}, friction ≈ {float(reading['friction']):.2f}")
-        text = W.as_attack_text(reading)
+        try:
+            outline = await outlining
+        except Exception:  # noqa: BLE001  (the outlines are a bonus; Spark's reading stands alone)
+            outline = None
+        if outline and outline["items"]:
+            seen = [f"{outline['steps']} step{'s' if outline['steps'] != 1 else ''}"] if outline["steps"] else []
+            seen += [f"{n} {k}{'es' if n > 1 else ''}" for n, k in ((outline["patches"], "wet or icy patch"),) if n]
+            seen += [f"{n} ramp{'s' if n > 1 else ''}" for n in (outline["ramps"],) if n]
+            report("SAM 3.1 outlined " + ", ".join(seen), outline=outline)
+        text = W.as_attack_text(reading, outline)
         report("Muse Wonder is turning it into physics")
         try:
             program = await asyncio.to_thread(translate, text, 1200, robot)
@@ -458,7 +468,7 @@ async def world(request: Request, media: UploadFile = File(...), live: bool = Qu
             raise HTTPException(400, f"Could not turn that place into physics: {str(e)[:200]}")
         result = await log_attack(program, text=f"Your world: {reading['place']}", source="world", report=report,
                                   robot=robot)
-        result.update(reading=reading, media=f"/media/{path.name}")
+        result.update(reading=reading, outline=outline, media=f"/media/{path.name}")
         return {k: v for k, v in result.items() if k != "theta"}
     if live:
         return stream("attack", run)

@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Composer from "../components/Composer";
+import PlaceOutline, { type Outline } from "../components/PlaceOutline";
 import Steps from "../components/Steps";
 import Envelope from "../components/Envelope";
 import PatchPanel from "../components/PatchPanel";
@@ -60,16 +61,20 @@ export default function Lab() {
   }, [tick]);
 
   const [steps, setSteps] = useState<string[]>([]);
-  const run = async (first: string, start: (r: "go1" | "g1") => Promise<{ job: string }>) => {
+  // A photo being read: shown with SAM 3.1's outlines while the robot is set up for that place.
+  const [photo, setPhoto] = useState<{ src: string; outline: Outline | null } | null>(null);
+  const run = async (first: string, start: (r: "go1" | "g1") => Promise<{ job: string }>, file?: File) => {
     setBusy(first); setSteps([first]); setError(""); setPatchJob(null); setAfter(null); setAttempts([]); setPair(null);
+    setPhoto(file && file.type.startsWith("image/") ? { src: URL.createObjectURL(file), outline: null } : null);
+    const onEvent = (e: any) => { if (e.outline) setPhoto((p) => (p ? { ...p, outline: e.outline } : p)); };
     const step = (prefix: string) => (st: string) => setSteps((xs) => (xs.at(-1) === prefix + st ? xs : [...xs, prefix + st]));
     try {
       if (robot === "both") {  // the same situation for each robot, one after the other (the GPU queues them anyway)
-        const a = await runJob(start("go1"), step("Quadruped · "));
-        const b = await runJob(start("g1"), step("Humanoid · "));
+        const a = await runJob(start("go1"), step("Quadruped · "), onEvent);
+        const b = await runJob(start("g1"), step("Humanoid · "), onEvent);
         setResult(null); setPair([a, b]);
       } else {
-        setResult(await runJob(start(robot), step("")));
+        setResult(await runJob(start(robot), step(""), onEvent));
       }
       setTick((t) => t + 1);
     } catch (e: any) { setError(e.message); }
@@ -121,7 +126,7 @@ export default function Lab() {
             <Composer busy={!!busy} examples={["Describe an attack…"]} prefill={prefill}
               onText={(text) => run("Sending your attack", (r) => post("/api/attack?stream=1", { text, robot: r }))}
               onVoice={(wav) => run("Uploading your voice", (r) => upload(`/api/attack_voice?stream=1&robot=${r}`, "audio", wav, "attack.wav"))}
-              onFile={(f) => run("Uploading your photo", (r) => upload(`/api/world?stream=1&robot=${r}`, "media", f, f.name))} />
+              onFile={(f) => run("Uploading your photo", (r) => upload(`/api/world?stream=1&robot=${r}`, "media", f, f.name), f)} />
           </div>
           <Link to="/playground" className="mt-3 inline-flex items-center gap-1.5 text-[13px] text-faint transition-colors hover:text-ink">
             or shove it yourself <ArrowRight size={13} />
@@ -178,10 +183,13 @@ export default function Lab() {
             <Replay trajs={[{ url: "/assets/sample_traj.json", label: "original" }]} className="absolute inset-0" />
           )}
           {busy && (
-            <div className="absolute inset-0 grid place-items-center bg-black/60 backdrop-blur-[2px]">
-              <div className="w-72">
+            <div className={`absolute inset-0 z-20 grid place-items-center backdrop-blur-[2px] ${photo ? "bg-black/80" : "bg-black/60"}`}>
+              <div className={photo ? "flex w-[min(36rem,90%)] flex-col items-center gap-5 sm:flex-row sm:items-center" : "w-72"}>
+                {photo && <PlaceOutline src={photo.src} outline={photo.outline} className="max-h-56 shrink-0 sm:max-h-64" />}
+                <div className="w-72 max-w-full">
                 <Steps steps={steps} />
                 <div className="mt-4 h-px overflow-hidden bg-line"><div className="sweep h-full w-1/3 bg-ember" /></div>
+                </div>
               </div>
             </div>
           )}
@@ -254,8 +262,10 @@ function Verdict({ r, after, onPatch, patching }: { r: Attack; after: any; onPat
   return (
     <div className="rise mt-6">
       {r.reading && (
-        <div className="mb-5 flex gap-4">
-          <img src={r.media} alt="" className="size-20 shrink-0 rounded-lg object-cover" />
+        <div className={`mb-5 flex flex-col gap-4 ${r.outline?.items?.length ? "" : "sm:flex-row"}`}>
+          {r.outline?.items?.length
+            ? <PlaceOutline src={r.media} outline={r.outline} className="max-h-72 max-w-full shrink-0" />
+            : <img src={r.media} alt="" className="size-20 shrink-0 rounded-lg object-cover" />}
           <p className="text-sm leading-relaxed text-mute">
             <span className="text-ink">{r.reading.place}.</span> {r.reading.surface}, friction ≈ {(+r.reading.friction).toFixed(2)}
             {Math.abs(r.reading.slope_deg) >= 1 ? `, ${(+r.reading.slope_deg).toFixed(0)}° slope` : ""}.

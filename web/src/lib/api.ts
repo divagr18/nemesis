@@ -48,9 +48,10 @@ export async function toWav(blob: Blob): Promise<Blob> {
 
 /** Starts a streamed server job (an endpoint called with ?stream=1) and resolves with its result,
  *  reporting each step as it happens. */
-export async function runJob(start: Promise<{ job: string }>, onStep: (step: string) => void): Promise<any> {
+export async function runJob(start: Promise<{ job: string }>, onStep: (step: string) => void,
+                             onEvent?: (e: any) => void): Promise<any> {
   const { job } = await start;
-  const end = await follow(job, (e) => { if (e.stage === "step") onStep(e.step); });
+  const end = await follow(job, (e) => { if (e.stage === "step") { onStep(e.step); onEvent?.(e); } });
   if (end.stage === "failed") throw new Error(end.error || "failed");
   return end.result;
 }

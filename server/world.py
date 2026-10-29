@@ -47,15 +47,68 @@ def media_item(path: Path) -> dict:
     return {"type": "input_image", "image_url": f"data:{mime};base64,{data}"}
 
 
+# What SAM 3.1 outlines in a photo of a place: one request per concept ($0.0025 each). "icy ground"
+# finds an icy path that "ice" misses.
+CONCEPTS = {"step": "step", "puddle": "puddle", "icy ground": "icy ground", "ramp": "ramp"}
+MIN_CONF = 0.5
+IMAGES = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def _upright(path: Path, out: Path, size: int = 1600) -> Path:
+    """The photo as the page shows it (EXIF rotation applied), at most `size` px on a side."""
+    from PIL import Image, ImageOps
+
+    with Image.open(path) as im:
+        im = ImageOps.exif_transpose(im).convert("RGB")
+        im.thumbnail((size, size))
+        im.save(out, "JPEG", quality=88)
+    return out
+
+
+def outline_place(path: Path) -> dict | None:
+    """What SAM 3.1 finds in a photo: steps, puddles, icy ground and ramps, each with its box (in pixels of
+    the image SAM saw, `size`, and as fractions of it) and mask; steps numbered from the nearest (lowest
+    in the photo). None for videos."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    if path.suffix.lower() not in IMAGES:
+        return None
+    small = _upright(path, path.with_name(path.stem + "_sam.jpg"))
+    with ThreadPoolExecutor(len(CONCEPTS)) as pool:
+        found = dict(zip(CONCEPTS, pool.map(lambda c: client.segment(small, c, "world/sam"), CONCEPTS)))
+    items = []
+    for concept, res in found.items():
+        w, h = res["w"] or 1, res["h"] or 1
+        for b in res["boxes"]:
+            if b["c"] >= MIN_CONF:
+                x1, y1, x2, y2 = b["box"]
+                items.append({"kind": concept, "label": CONCEPTS[concept], "c": b["c"], "px": [x1, y1, x2, y2],
+                              "box": [round(x1 / w, 4), round(y1 / h, 4), round(x2 / w, 4), round(y2 / h, 4)],
+                              **({"mask": b["mask"]} if "mask" in b else {})})
+    steps = sorted((i for i in items if i["kind"] == "step"), key=lambda i: -i["box"][3])
+    for n, st in enumerate(steps, 1):
+        st["n"] = n
+    size = next(([r["w"], r["h"]] for r in found.values() if r["w"]), [0, 0])
+    return {"model": config.SAM, "size": size, "items": items, "steps": len(steps),
+            "patches": sum(i["kind"] in ("puddle", "icy ground") for i in items), "ramps": sum(i["kind"] == "ramp" for i in items)}
+
+
 def read_place(path: Path) -> dict:
     return client.respond([{"type": "input_text", "text": PROMPT}, media_item(path)],
                           model=config.vision_model(), schema=SCHEMA, reasoning="low", tag="world/read")
 
 
-def as_attack_text(r: dict) -> str:
-    """The reading as an attack description for the same translator the text box uses."""
+def as_attack_text(r: dict, outline: dict | None = None) -> str:
+    """The reading (and SAM's count of what is in the photo) as an attack description for the same
+    translator the text box uses."""
     parts = [f"The robot walks forward across {r['place']} ({r['surface']}): set foot friction to "
              f"{r['friction']:.2f} on all feet"]
+    if outline and outline["steps"]:
+        parts.append(f"segmentation of the photo counted exactly {outline['steps']} step"
+                     f"{'s' if outline['steps'] > 1 else ''} up ahead: build exactly that many steps, at a "
+                     "realistic height for this kind of place")
+    if outline and outline["ramps"] and not outline["steps"]:
+        parts.append("segmentation found a ramp ahead (model it as a gentle ramp)")
     if abs(r["slope_deg"]) >= 1:
         parts.append(f"an uphill slope of {r['slope_deg']:.0f} degrees")
     if r["slippery_patches"].strip().lower() not in ("none", ""):
