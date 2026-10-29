@@ -66,7 +66,7 @@ Sources: [docs/literature_review.md](docs/literature_review.md) and an expert-el
 9. **Render video from logged batched trajectories**, not re-simulation, because chaotic contact dynamics aren't bit-exact across batch sizes. "Reproducible" means fail rate within its CI over N seeds.
 10. **Demo:** the skill compiler shrinks to an ≤8 s beat (it's Eureka-like and splits the story). Headline the discovery curve, with CVaR@10% as the robustness number. Run the full pipeline at 1 seed on D4 and lock `analyze.py` before the D6 sweep.
 
-**Positioning:** to our knowledge, no prior work has an LLM write adversarial physics programs for legged robots. The closest are Q-DEG (QD red-teaming of manipulation VLAs, no LLM) and ChatScene (LLM → driving scenario DSL → fine-tune). Cite both.
+**Positioning:** to our knowledge, no prior work has an LLM write adversarial physics programs for legged robots. The closest are Q-DEG (quality-diversity failure search for manipulation VLAs, no LLM) and ChatScene (LLM → driving scenario DSL → fine-tune). Cite both.
 
 ## Repo layout (`D:\muse`)
 ```
@@ -173,7 +173,7 @@ experiments/{run_arm,gauntlet,crossplay,analyze}.py   server/{app,modal_app}.py 
 ## P8: Evaluation and assets (D8, Nov 3)
 | # | Task | Done when |
 |---|---|---|
-| 8.1 | Run the gauntlet, the cross-play matrix, and the human red-team set across all arms. | Results JSON |
+| 8.1 | Run the gauntlet, the cross-play matrix, and the human-written attack set across all arms. | Results JSON |
 | 8.2 | `experiments/analyze.py`: success, CVaR, nominal success, 95% CIs, equal-budget check. | Plots generated |
 | 8.3 | Atlas page and dashboard in `web/`. | Linked from the attack page |
 | 8.4 | Side-by-side videos: baseline vs Nemesis on the same scenarios. | 4–6 clips ready |
@@ -202,9 +202,9 @@ This is a tech hackathon, so the product is the story. The benchmark is a one-li
 | F3 | **Agent mode** | Wonder as a tool-calling agent (native `function_call`, verified on Oct 27). Tools: `test_attack` (CMA-ES over a program's ranges), `shrink`, `sweep` (safety margin), `watch` (Spark on the clip), `patch`, `verify`. Its reasoning trace streams live: hypothesis → test → refine → diagnose → fix → verify. | Best Agentic, depth, demo | "Let Nemesis attack" streams a full campaign in a few minutes |
 | F4 | **Your world** | Upload a photo or short video of a place (stairs, wet tiles, gravel, a ramp). Spark estimates the surface, friction, slope and hazards; Wonder writes the attack program; the robot runs it. This simulates your environment, so no physical robot is needed. | Meta tooling (Spark vision), viral | Photo → scenario → clip with Spark's reading shown |
 | F5 | **3D replay in the browser** | The server exports per-frame body poses plus a one-off mesh asset. three.js renders an orbit camera, a timeline scrubber, before/after robots side by side, and overlays (ice slab, push arrows, payload, tinted weak motors, a tilted floor for slopes). No browser physics, so there's no porting risk. | Demo quality, every video shot | Orbit/scrub replay of any attack; mp4 kept as fallback |
-| F6 | **Red-team report** | A pentest-style report for a policy version: failure modes ranked by severity, and for each one the hypothesis, minimal counterexample, clip, Spark diagnosis and **safety margin** (bisection along the key parameter), before/after patch. Wonder writes the executive summary. HTML page plus Markdown. | Impact ("who benefits") | `/report/<version>` renders |
+| F6 | **Readiness report** | A pentest-style report for a policy version: failure modes ranked by severity, and for each one the hypothesis, minimal counterexample, clip, Spark diagnosis and **safety margin** (bisection along the key parameter), before/after patch. Wonder writes the executive summary. HTML page plus Markdown. | Impact ("who benefits") | `/report/<version>` renders |
 | F7 | **Humanoid** | A second robot from Playground (G1 or Berkeley Humanoid joystick). Generalize the θ layout to N feet and N joints, train a baseline on AWS, and add a robot picker on the page. | Viral, generality | A humanoid attack runs end to end on the page |
-| F8 | **Fully open-weight mode** | `NEMESIS_OPEN=1`: Glimmer is the adversary/translator and Muse Spark Open does vision, both self-hosted (llama.cpp). One `docker compose up` gives an offline red team on one GPU. | Best open-weight build ($10k) | The whole loop runs with no Meta API key |
+| F8 | **Fully open-weight mode** | `NEMESIS_OPEN=1`: Glimmer is the adversary/translator and Muse Spark Open does vision, both self-hosted (llama.cpp). One `docker compose up` gives an offline stress tester on one GPU. | Best open-weight build ($10k) | The whole loop runs with no Meta API key |
 
 Architecture changes:
 - `server/` is split into modules: `jobs.py` (background jobs + SSE event streams), `versions.py` (policy registry + regression gate), `traj.py` (3D export), `agent.py`, `world.py`, `report.py`.

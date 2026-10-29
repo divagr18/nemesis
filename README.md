@@ -176,7 +176,7 @@ The project log is in [`docs/LAB_NOTEBOOK.md`](docs/LAB_NOTEBOOK.md): findings, 
 ## Related work
 
 To our knowledge, no prior work uses an LLM to write adversarial physics programs for legged locomotion. The closest:
-- **Q-DEG** ([2610.14415](https://arxiv.org/abs/2610.14415)): quality-diversity red-teaming of manipulation VLAs, with no LLM in the generator.
+- **Q-DEG** ([2610.14415](https://arxiv.org/abs/2610.14415)): quality-diversity search for failures of manipulation VLAs, with no LLM in the generator.
 - **ChatScene** ([2405.14062](https://arxiv.org/abs/2405.14062)): an LLM writes a driving-scenario DSL for safety-critical scenarios, then the driver is fine-tuned.
 - **DrEureka** and **Eurekaverse**: LLM-written randomization ranges and terrains, used once as a curriculum rather than as an adversarial loop.
 
