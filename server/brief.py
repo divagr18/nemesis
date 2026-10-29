@@ -462,10 +462,13 @@ async def train(bid: str, request: Request):
     picks = learnable(b)
     if not picks:
         raise HTTPException(400, "Nothing here knocks it over in a way it can learn from.")
+    joined = A.patch_queue(s["attack_id"] for s in picks)
+    if joined:
+        return {"job": joined, "joined": True, "situations": len(picks)}
     A._rate_limit(request.client.host, "patch")
     job = jobs.new("patch")
     b["train"] = {"job": job.id, "status": "running", "situations": [s["index"] for s in picks],
                   "from": A.versions.live()["name"], "started": time.time()}
     _save(b)
-    jobs.spawn(job, _train(job, b, picks))
+    A.start_patch(job, [{"id": s["attack_id"]} for s in picks], _train(job, b, picks))
     return {"job": job.id, "joined": False, "situations": len(picks)}

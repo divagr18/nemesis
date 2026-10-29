@@ -152,9 +152,41 @@ def reload_live():
     s.update(live=s["load"](live["dir"]), live_name=live["name"])
 
 
+GPU_QUEUE_MAX = int(os.environ.get("NEMESIS_GPU_QUEUE", "12"))  # simulation jobs in flight before new ones are turned away
+GPU_KINDS = ("attack", "round", "brief", "report")
+PATCH_QUEUE_MAX = 3  # one training plus two waiting
+_patch_jobs: dict[str, frozenset] = {}  # retrain job -> the attacks it trains on
+
+
 def _rate_limit(ip: str, bucket: str = "attack"):
-    """Per-visitor limits (per minute and per 6 hours) and the spend clamp: server/limits.py."""
+    """Per-visitor limits (per minute and per 6 hours) and the spend clamp: server/limits.py. GPU work is
+    turned away first while the simulator's queue is long, before any quota or model call is spent."""
+    if bucket in ("attack", "duel-round", "brief", "report", "shove"):
+        busy = sum(1 for j in jobs.JOBS.values() if j.kind in GPU_KINDS and j.status in ("queued", "running"))
+        if busy >= GPU_QUEUE_MAX:
+            raise HTTPException(503, "The simulator has a long queue right now. Try again in a minute.")
     limits.check(ip, bucket)
+
+
+def patch_queue(attack_ids) -> str | None:
+    """The retrain already running or waiting on exactly these attacks (join it), else None. Raises when
+    the retrain queue is full."""
+    active = {j: ids for j, ids in _patch_jobs.items() if j in jobs.JOBS and jobs.JOBS[j].status in ("queued", "running")}
+    _patch_jobs.clear()
+    _patch_jobs.update(active)
+    ids = frozenset(attack_ids)
+    for j, s in active.items():
+        if s == ids:
+            return j
+    if len(active) >= PATCH_QUEUE_MAX:
+        raise HTTPException(429, "Two retrains are already waiting. Try again when they finish.")
+    return None
+
+
+def start_patch(job: jobs.Job, attacks: list[dict], coro=None):
+    """Spawns a retrain job (default: run_patch on `attacks`) and counts it in the retrain queue."""
+    _patch_jobs[job.id] = frozenset(a["id"] for a in attacks)
+    jobs.spawn(job, coro if coro is not None else _patch(job, attacks))
 
 
 def translate(text: str, limit: int = 500, robot: str = "go1"):
@@ -349,7 +381,7 @@ def _maybe_community_patch():
     if len(fresh) >= COMMUNITY_BATCH:
         job = jobs.new("patch")
         job.community = True
-        jobs.spawn(job, _patch(job, fresh[-COMMUNITY_BATCH:]))
+        start_patch(job, fresh[-COMMUNITY_BATCH:])
 
 
 @app.post("/api/attack")
@@ -615,7 +647,6 @@ def explain_learning(clip_url: str, trajs: list[dict], attack_text: str) -> str:
 
 @app.post("/api/patch")
 async def patch(body: PatchIn, request: Request):
-    _rate_limit(request.client.host, "patch")
     attack = _find(body.attack_id)
     if attack.get("robot", "go1") != "go1":
         raise HTTPException(400, "Training the humanoid from the page is coming soon; for now it's attack-only.")
@@ -624,8 +655,12 @@ async def patch(body: PatchIn, request: Request):
         raise HTTPException(400, "This only knocks the robot over occasionally, so there's nothing reliable to train away.")
     if not attack.get("survivable", True):
         raise HTTPException(400, "Physics wins: even our toughest robot falls on this one, so there is nothing to learn.")
+    joined = patch_queue([attack["id"]])
+    if joined:
+        return {"job": joined, "joined": True}
+    _rate_limit(request.client.host, "patch")
     job = jobs.new("patch")
-    jobs.spawn(job, _patch(job, [attack]))
+    start_patch(job, [attack])
     return {"job": job.id}
 
 
@@ -869,15 +904,18 @@ async def duel_patch(duel_id: str, request: Request):
     """Train the live robot on every attack in the duel that broke it (brute force excluded)."""
     if duel_id not in DUELS:
         raise HTTPException(404)
-    _rate_limit(request.client.host, "patch")
     duel = DUELS[duel_id]
     attacks = [{"id": r[side]["id"], "text": r[side]["text"], "theta": r[side]["theta"]}
                for r in duel.history for side in ("you", "muse")
                if r[side]["fall_rate"] >= 0.5 and not r[side]["cheap"]]
     if not attacks:
         raise HTTPException(400, "Nothing in this duel broke the robot fairly, so there is nothing to learn.")
+    joined = patch_queue(a["id"] for a in attacks[:5])
+    if joined:
+        return {"job": joined, "joined": True, "attacks": len(attacks[:5])}
+    _rate_limit(request.client.host, "patch")
     job = jobs.new("patch")
-    jobs.spawn(job, _patch(job, attacks[:5]))
+    start_patch(job, attacks[:5])
     return {"job": job.id, "attacks": len(attacks[:5])}
 
 

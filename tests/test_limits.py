@@ -99,3 +99,31 @@ def test_clamped_quotas_and_free_buckets(fresh, monkeypatch):
         limits.check(ip, "duel")
     assert e.value.status_code == 503
     limits.check(ip, "shove")  # no model call: the Playground keeps working when stopped
+
+
+def test_gpu_queue_and_retrain_queue(fresh, monkeypatch):
+    from server import app as A, jobs
+
+    monkeypatch.setattr(jobs, "JOBS", {})
+    monkeypatch.setattr(A, "_patch_jobs", {})
+    for _ in range(A.GPU_QUEUE_MAX):
+        jobs.new("attack").status = "running"
+    with pytest.raises(HTTPException) as e:
+        A._rate_limit("203.0.113.9", "attack")
+    assert e.value.status_code == 503
+    assert limits.status("203.0.113.9")["buckets"]["attack"]["left"] == 40  # turned away before the quota
+    A._rate_limit("203.0.113.9", "duel")  # no simulation up front
+
+    started = []
+    for i in range(A.PATCH_QUEUE_MAX):
+        assert A.patch_queue([f"a{i}"]) is None
+        job = jobs.new("patch")
+        job.status = "running"
+        A._patch_jobs[job.id] = frozenset([f"a{i}"])
+        started.append(job.id)
+    assert A.patch_queue(["a1"]) == started[1]  # the same attack joins its retrain
+    with pytest.raises(HTTPException) as e:
+        A.patch_queue(["a9"])
+    assert e.value.status_code == 429
+    jobs.JOBS[started[0]].status = "done"
+    assert A.patch_queue(["a9"]) is None  # a finished retrain frees its place

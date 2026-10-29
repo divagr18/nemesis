@@ -109,6 +109,13 @@ def _local_chat(req: dict) -> tuple[str, dict | None]:
     return resp.choices[0].message.content, resp.usage.model_dump() if resp.usage else None
 
 
+def cache_hint(tag: str) -> dict:
+    """Meta's prompt-cache hints. Caching is automatic, but without them two back-to-back translate calls
+    cached nothing; with them the second served 7,782 of 7,826 input tokens from cache (Oct 29), at 1/20
+    of the input price. Prompts keep their fixed part first and the visitor's text last."""
+    return {"prompt_cache_key": f"nemesis-{tag}", "prompt_cache_retention": "24h"}
+
+
 def respond(
     prompt: str | list,
     model: str | None = None,
@@ -141,6 +148,8 @@ def respond(
 
     key = _cache_key(req)
     path = CACHE_DIR / f"{key}.json"
+    if model == config.WONDER and tag:
+        req["extra_body"] = cache_hint(tag)
     if cache and path.exists():
         out = json.loads(path.read_text())
     else:

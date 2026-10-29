@@ -121,7 +121,7 @@ class Agent:
             ledger.guard()
             resp = await asyncio.to_thread(
                 client.client().responses.create, model=config.WONDER, instructions=instructions,
-                input=inputs, tools=TOOLS, reasoning={"effort": "medium"}, **kw)
+                input=inputs, tools=TOOLS, reasoning={"effort": "medium"}, extra_body=client.cache_hint("agent/turn"), **kw)
             ledger.record(config.WONDER, resp.usage.model_dump() if resp.usage else None, "agent/turn")
             prev, inputs = resp.id, []
             calls = [o for o in resp.output if o.type == "function_call"]
