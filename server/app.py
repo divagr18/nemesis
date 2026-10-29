@@ -804,6 +804,40 @@ async def new_duel(body: DuelIn, request: Request):
     return duel.public()
 
 
+def _save_duel(duel):
+    DUEL_DIR.mkdir(parents=True, exist_ok=True)  # every round is kept so the lobby can replay recent duels
+    (DUEL_DIR / f"{duel.id}.json").write_text(json.dumps({**duel.public(), "ts": time.time()}, default=float))
+
+
+SPARK_WAIT = 60  # seconds; a round whose Spark line takes longer simply has none (the page stops polling too)
+_spark_tasks: set = set()
+
+
+def _spark_later(duel, res: dict, qs: list, thetas: list, ev):
+    """After the round is returned: render its side-by-side clip on the render thread, let Muse Spark watch
+    it, and store Spark's sentence in the round as `spark` ("" if it failed or took too long). Until then the
+    round has no `spark` key, and the page polls GET /api/duel/{id} for it."""
+    from server import duel as D
+
+    async def go():
+        path = CLIPS / f"duel-{duel.id}-{res['round']}.mp4"
+        CLIPS.mkdir(parents=True, exist_ok=True)
+        await asyncio.wrap_future(_render_pool.submit(D.render_round, ev, qs, thetas, path))
+        return one_line(await asyncio.to_thread(D.watch, path, res["you"], res["muse"]), 240)
+
+    async def run():
+        try:
+            line = await asyncio.wait_for(go(), SPARK_WAIT)
+        except Exception as e:  # noqa: BLE001  (Spark's line is extra; the round already stands without it)
+            print(f"duel spark {duel.id}-{res['round']}: {type(e).__name__}: {str(e)[:120]}", file=sys.stderr)
+            line = ""
+        res["spark"] = line
+        _save_duel(duel)
+    task = asyncio.create_task(run())
+    _spark_tasks.add(task)  # keep a reference until it is done
+    task.add_done_callback(_spark_tasks.discard)
+
+
 async def _round(duel, text: str, transcript: str | None = None, report=lambda *a, **k: None) -> dict:
     from server import duel as D
 
@@ -828,6 +862,7 @@ async def _round(duel, text: str, transcript: str | None = None, report=lambda *
         th_you = np.asarray(compile_program(program).base, np.float32)
         th_muse = np.asarray(compile_program(muse_prog).base, np.float32)
         res = await asyncio.to_thread(D.play, s, th_you, th_muse, int(time.time()) % 10_000, report)
+    qs = [res["you"].pop("qpos"), res["muse"].pop("qpos")]
     res["you"]["text"], res["muse"]["text"] = text, say or muse_prog.hypothesis
     n = len(duel.history) + 1
     report("Muse is commenting on the round")
@@ -837,8 +872,8 @@ async def _round(duel, text: str, transcript: str | None = None, report=lambda *
     for side in ("you", "muse"):
         res[side]["id"] = f"{duel.id}-{n}-{side}"
     duel.history.append(res)
-    DUEL_DIR.mkdir(parents=True, exist_ok=True)  # every round is kept so the lobby can replay recent duels
-    (DUEL_DIR / f"{duel.id}.json").write_text(json.dumps({**duel.public(), "ts": time.time()}, default=float))
+    _save_duel(duel)
+    _spark_later(duel, res, qs, [th_you, th_muse], s["ev"])
     if duel.over:
         tally().add(duel.winner())
     else:
@@ -908,11 +943,12 @@ def recent_duel_round():
         d = json.loads(f.read_text())
         if moderation.hidden(d["id"]):
             continue
-        for r in reversed(d["history"]):  # both texts and the commentary must have passed moderation
+        for r in reversed(d["history"]):  # both texts, the commentary and Spark's line must have passed moderation
             if max(r["you"]["fall_rate"], r["muse"]["fall_rate"]) >= 0.5 and all(
-                    moderation.text_ok(t) for t in (r["you"]["text"], r["muse"]["text"], r.get("comment", ""))):
+                    moderation.text_ok(t) for t in (r["you"]["text"], r["muse"]["text"], r.get("comment", ""),
+                                                    r.get("spark") or "")):
                 return {"duel": d["id"], "round": r["round"], "version": d["version"], "you": r["you"], "muse": r["muse"],
-                        "comment": r.get("comment", "")}
+                        "comment": r.get("comment", ""), "spark": r.get("spark") or ""}
     return {}
 
 
