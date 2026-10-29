@@ -203,6 +203,7 @@ The service ([`server/`](server)) is a FastAPI app:
 - `report.py`: Readiness reports and the safety map.
 - `versions.py`: the lineage, changelogs and the community lesson bank.
 - `jobs.py`: background jobs, streamed to the page as resumable server-sent events.
+- `moderation.py`: visitor text and handles are checked once by Muse Spark before anyone else sees them (Hall of Fame, leaderboard, share cards, reports); unchecked or flagged text stays out of public view.
 
 The web app ([`web/`](web)) is Vite + React + Tailwind with six pages: Break it, You vs Muse, Playground, Live deployment, Autopilot and Readiness report. It builds to `web/dist`, which the server serves (`cd web && npm install && npm run build`). The 3D replay is three.js playing back poses exported from the simulator (`nemesis/sim/export.py`). The Playground runs the physics itself: `nemesis/export/play.py` writes the model (`.mjb`) and each version's policy, and `web/src/lib/playcore.js` steps them on MuJoCo WASM (parity-tested against the Python reference in `tests/test_play.py`).
 

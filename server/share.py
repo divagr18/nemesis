@@ -11,6 +11,12 @@ Cards and clips are rendered once and cached under <serve dir>/share/.
 The sentence is visitor text and is treated as untrusted everywhere: HTML-escaped in the page, drawn
 with Pillow into PNGs that ffmpeg overlays (it never reaches a shell or an ffmpeg filter string), and
 ids are checked against a hex pattern before any path is built from them.
+
+Moderation (server/moderation.py) is checked on the spot for these single-item pages. A text that has not
+passed is left out rather than the page 404ing, so a link already posted still unfurls: the record has no
+text, handle, photo or place reading, the page title, card and vertical clip use a generic caption (cached
+under a separate name, so a card rendered before an admin hid it is never served again), and the post text
+leaves out the quote. The GIF has no text in it, so it is served as is.
 """
 
 import html
@@ -27,6 +33,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
+
+from server import moderation
 
 router = APIRouter()
 
@@ -53,6 +61,12 @@ def _attack(attack_id: str) -> dict:
     if not ID.fullmatch(attack_id):
         raise HTTPException(404, "unknown attack")
     return _app()._find(attack_id)
+
+
+def _screened(attack_id: str) -> dict:
+    """The attack, marked `_hidden` unless its text has passed moderation (checked now if it hasn't been)."""
+    r = _attack(attack_id)
+    return {**r, "_hidden": not moderation.attack_ok(r, wait=True)}
 
 
 def _host() -> str:
@@ -108,6 +122,18 @@ def _sentence(r: dict) -> str:
     return " ".join(t.split()) or "An untitled situation"
 
 
+GENERIC = "A situation described on Nemesis"  # in place of a text that hasn't passed moderation
+
+
+def _caption(r: dict) -> str:
+    return GENERIC if r.get("_hidden") else f"“{_sentence(r)}”"
+
+
+def _variant(r: dict) -> str:
+    """Cache-name suffix: a generic render never shares a file with one that shows the sentence."""
+    return ".generic" if r.get("_hidden") else ""
+
+
 def _truncate(s: str, n: int) -> str:
     if len(s) <= n:
         return s
@@ -120,6 +146,8 @@ def post_text(r: dict) -> str:
     won or lost, with this sentence. Won = the live robot fell (the page's "fell")."""
     bot = "humanoid" if r.get("robot") == "g1" else "robot dog"
     result = "won" if r.get("broke_trained") or (r.get("fall_rate_trained") or 0) >= 0.5 else "lost"
+    if r.get("_hidden"):
+        return f"I challenged {META} to keep its {bot} standing, and I {result}.\n\nYour turn:"
     head = f"I challenged {META} to keep its {bot} standing, and I {result} with “"
     tail = "”\n\nYour turn:"
     room = X_LIMIT - X_URL - 1 - len(head) - len(tail)
@@ -132,6 +160,11 @@ def public(r: dict) -> dict:
     A = _app()
     out = {k: r.get(k) for k in A.HOF_KEYS}
     out.update({k: r[k] for k in EXTRA_KEYS if k in r})
+    out["handle"] = moderation.shown_handle(r, wait=True)
+    out.pop("media", None)  # the visitor's own photo: only they see it (in their result), never through a link
+    if r.get("_hidden"):
+        out.update(text=None, handle=None)
+        out.pop("reading", None)
     out["status"] = A.versions.status().get(r["id"], {}) if r.get("robot", "go1") == "go1" else {}
     out["fixed_in"] = _fixed_in(r)
     out["outcome"] = _plain(outcome(r, out["fixed_in"]))
@@ -143,7 +176,7 @@ def public(r: dict) -> dict:
 
 @router.get("/api/attack/{attack_id}")
 def get_attack(attack_id: str):
-    return public(_attack(attack_id))
+    return public(_screened(attack_id))
 
 
 # ---- link preview page -----------------------------------------------------------------------------
@@ -166,7 +199,7 @@ def page(r: dict | None) -> str:
     if r is None:
         return doc
     e = lambda s: html.escape(s, quote=True)  # noqa: E731
-    title = _truncate(_sentence(r), 110)
+    title = GENERIC if r.get("_hidden") else _truncate(_sentence(r), 110)
     desc = _plain(outcome(r, _fixed_in(r)))
     url, img = f"{PUBLIC_URL}/a/{r['id']}", f"{PUBLIC_URL}/og/{r['id']}.png"
     tags = [f"<title>{e(title)} · Nemesis</title>",
@@ -194,7 +227,7 @@ def page(r: dict | None) -> str:
 @router.get("/a/{attack_id}")
 def share_page(attack_id: str):
     try:
-        r = _attack(attack_id)
+        r = _screened(attack_id)
     except HTTPException:
         return HTMLResponse(page(None), status_code=404)  # the app still boots and says it's not found
     return HTMLResponse(page(r), headers={"Cache-Control": "public, max-age=300"})
@@ -455,7 +488,7 @@ def _card(r: dict, frame):
 
     size = 40 if frame is not None else 60
     sf = font(size, "Medium")
-    text = _drawable(sf, f"“{_sentence(r)}”")
+    text = _drawable(sf, _caption(r))
     lines = wrap(sf, text, W - 2 * M, 2 if frame is not None else 4)
     lh = round(size * 1.24)
     y = oy - 22 - lh * len(lines)
@@ -469,8 +502,8 @@ def _card(r: dict, frame):
 
 @router.get("/og/{attack_id}.png")
 def og_image(attack_id: str):
-    r = _attack(attack_id)
-    path = _cache_dir() / f"{attack_id}.card{RENDER_REV}.png"
+    r = _screened(attack_id)
+    path = _cache_dir() / f"{attack_id}.card{RENDER_REV}{_variant(r)}.png"
     headers = {"Cache-Control": "public, max-age=86400"}
     with _lock(f"card:{attack_id}"):
         if not path.exists():
@@ -498,7 +531,7 @@ def _vertical_layers(r: dict, half_aspect: float):
     panes = [(VM, PANE_TOP), (VM, PANE_TOP + ph + PANE_GAP)]
     bg = Image.new("RGB", (VW, VH), BG)
     d = ImageDraw.Draw(bg)
-    raw = f"“{_sentence(r)}”"
+    raw = _caption(r)
     for size in (58, 50, 44):  # the largest size that fits in three lines
         sf = font(size, "Medium")
         lines = wrap(sf, _drawable(sf, raw), VW - 2 * VM, 3)
@@ -571,8 +604,8 @@ def vertical(r: dict, clip: Path, path: Path):
 
 @router.get("/v/{attack_id}.mp4")
 def vertical_clip(attack_id: str):
-    r = _attack(attack_id)
-    path = _cache_dir() / f"{attack_id}.vertical{RENDER_REV}.mp4"
+    r = _screened(attack_id)
+    path = _cache_dir() / f"{attack_id}.vertical{RENDER_REV}{_variant(r)}.mp4"
     with _lock(f"vertical:{attack_id}"):
         if not path.exists():
             clip = _clip(r)
