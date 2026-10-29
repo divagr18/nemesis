@@ -814,6 +814,11 @@ P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain h
   - The safety map takes at most two versions in lineage order.
   - The client retries at most twice (was 4).
   - `GET /api/limits` shows a visitor what they have left.
+- **Live check (deployed 98c08eb):** one attack from the laptop. The box's ledger logged Wonder at 7,832 in (0 cached), 635 out (465 reasoning), $0.044. The server saw the real client IP, not Caddy's, and the quota showed 39 of 40.
+- **Prompt caching.** Two back-to-back translate calls without hints cached nothing. With `prompt_cache_key` and `prompt_cache_retention: "24h"`, the second served 7,782 of 7,826 input tokens from cache. That takes an attack from about $0.044 to about $0.012. Every Wonder call (and Autopilot turn) now sends the hints, keyed by call type.
+- **Queues:**
+  - New simulation work is turned away (503) while 12 simulation jobs are in flight. This is checked before any quota or model call is spent.
+  - Retrains: one training plus two waiting. A retrain on the same attacks joins the one already queued.
 
 ## Decisions log
 | When | Decision | Why |
