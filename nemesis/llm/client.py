@@ -152,13 +152,17 @@ def respond(
         req["extra_body"] = cache_hint(tag)
     if cache and path.exists():
         out = json.loads(path.read_text())
+        _forget_files(content)
     else:
         t0 = time.time()
         if model in config.LOCAL_MODELS:
             text, usage = _local_chat(req)
         else:
             ledger.guard()
-            resp = client().responses.create(**req)
+            try:
+                resp = client().responses.create(**req)
+            finally:
+                _forget_files(content)
             text, usage = resp.output_text, resp.usage.model_dump() if resp.usage else None
             ledger.record(model, usage, tag)
         out = {"text": text, "usage": usage, "latency_s": round(time.time() - t0, 2)}
@@ -195,6 +199,23 @@ def segment(path: str | Path, concept: str, tag: str = "sam") -> dict:
         out["boxes"].append(item)
     _log({"ts": time.time(), "tag": tag, "model": config.SAM, "prompt": concept, "output": out})
     return out
+
+
+def _forget_files(content: list):
+    """Deletes the clips this call uploaded (each upload is used once; nothing else cleans them up on
+    Meta's side). In the background, so the answer isn't held up."""
+    ids = [c["file_id"] for c in content if c.get("type") == "input_file" and c.get("file_id")]
+
+    def go():
+        for fid in ids:
+            try:
+                client().files.delete(fid)
+            except Exception:  # noqa: BLE001  (best effort)
+                pass
+    if ids:
+        import threading
+
+        threading.Thread(target=go, daemon=True).start()
 
 
 def upload(path: str | Path) -> str:
