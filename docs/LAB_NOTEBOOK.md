@@ -768,6 +768,53 @@ P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain h
   - **Second shove:** a quick 150 N shove from its right (0.3 s) fells v13. On the server, the original falls 100% and v13 75%. "Train it to survive this" runs: 11/16 falls before, 4/16 at 1M steps, 2/16 at 2M (early stop). The gate accepts v14, and v14 loads into the stage by itself.
   - **After training:** the same shove from the right on v14 in the browser, 3 times, 0 falls.
 
+## Oct 29: what the public site costs, and its limits
+
+**Prices** (https://dev.meta.ai/docs/pricing-rate-limits, read Oct 29). Per 1M tokens, cached input / input / output:
+- Wonder: $0.20 / $4.00 / $20.00. Wonder has no contributor tier.
+- Spark 1.3 contributor: $0.002 / $0.10 / $0.20.
+- Voice Transcribe: $0.18 per audio hour.
+- SAM 3.1: $2.50 per 1,000 images.
+- Rate limits are per team: Wonder 3,000 RPM, Spark contributor 150 RPM.
+- The API has no spend cap of its own.
+
+**Measured per call** (local log). Output includes reasoning tokens.
+- Translate: ≈7.8k in, 0.7k out, **≈$0.045 per attack**.
+- Brief situations: ≈8.2k in, 2.7k out, ≈$0.09.
+- Spark calls cost a fraction of a cent.
+
+**Audit, before this change:**
+- Limits were per IP per minute only, with no total cap.
+- A scripted visitor could spend about $50/h:
+  - starting duels (4/min, Muse writes its attack at once): ≈$22/h
+  - attacks: ≈$8/h, and Wonder runs before the GPU queue
+  - briefs and duel rounds: the rest
+- Voice without `stream=1` transcribed before the limit.
+- Autopilot called the API directly, so its spend was never logged.
+- The safety map was unlimited, with one cache entry per version order.
+
+**Built:**
+- **Ledger (`nemesis/llm/ledger.py`):** a price registry. Every billed call goes to `runs/spend.jsonl` with input, cached input, output and reasoning tokens and its cost. Covered: Responses calls, Autopilot turns, Transcribe by whole seconds.
+- **Budget modes:** clamped from $100 of tracked spend; at most $2/h site-wide once clamped; no new paid calls from $125. The user had $130 of credit left when tracking started (counted from $0). `python -m nemesis.llm.ledger` prints the totals.
+- **Limits (`server/limits.py`):** per visitor (IP), per minute and per 6 hours. Normal → clamped:
+  - attacks 40 → 8
+  - duels 6 → 2
+  - duel rounds 30 → 6
+  - briefs 3 → 1
+  - Autopilot 2 → off
+  - reports 2 → 1
+  - retrains 4 → 2
+  - safety maps 30 → 10 (GPU only)
+  - Playground shoves 120 (no model call; never clamped)
+- **Fixes:**
+  - The limit is charged before any paid call, including voice on every path.
+  - Watching a running Autopilot is free.
+  - Voice uploads are capped at 4 MB.
+  - Photos are read with a size cap.
+  - The safety map takes at most two versions in lineage order.
+  - The client retries at most twice (was 4).
+  - `GET /api/limits` shows a visitor what they have left.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|

@@ -377,7 +377,7 @@ class BriefIn(BaseModel):
 @router.post("/api/brief")
 async def new_brief(body: BriefIn, request: Request):
     A = _app()
-    A._rate_limit(request.client.host, per_min=2, bucket="brief")
+    A._rate_limit(request.client.host, "brief")
     place = " ".join(body.place.split())
     b = {"id": uuid.uuid4().hex[:10], "place": place, "robot": "go1", "created": time.time(), "status": "writing",
          "version": A.versions.live()["name"], "situations": [], "job": None, "train": None}
@@ -462,7 +462,7 @@ async def train(bid: str, request: Request):
     picks = learnable(b)
     if not picks:
         raise HTTPException(400, "Nothing here knocks it over in a way it can learn from.")
-    A._rate_limit(request.client.host, per_min=1, bucket="patch")
+    A._rate_limit(request.client.host, "patch")
     job = jobs.new("patch")
     b["train"] = {"job": job.id, "status": "running", "situations": [s["index"] for s in picks],
                   "from": A.versions.live()["name"], "started": time.time()}

@@ -21,7 +21,7 @@ import time
 import numpy as np
 
 from nemesis import config
-from nemesis.llm import client
+from nemesis.llm import client, ledger
 from nemesis.perturb import canonical as C
 from nemesis.perturb.dsl import Program, compile_program
 
@@ -118,9 +118,11 @@ class Agent:
             if turn == MAX_TURNS:
                 inputs.append({"role": "user", "content": "Out of tool calls: call finish now."})
             kw = {"previous_response_id": prev} if prev else {}
+            ledger.guard()
             resp = await asyncio.to_thread(
                 client.client().responses.create, model=config.WONDER, instructions=instructions,
                 input=inputs, tools=TOOLS, reasoning={"effort": "medium"}, **kw)
+            ledger.record(config.WONDER, resp.usage.model_dump() if resp.usage else None, "agent/turn")
             prev, inputs = resp.id, []
             calls = [o for o in resp.output if o.type == "function_call"]
             text = resp.output_text.strip()

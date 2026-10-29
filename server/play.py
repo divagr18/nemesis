@@ -161,7 +161,7 @@ def shove_program(body: ShoveIn):
 @router.post("/api/play/shove")
 async def shove(body: ShoveIn, request: Request):
     A = _app()
-    A._rate_limit(request.client.host)
+    A._rate_limit(request.client.host, "shove")
     program, text = shove_program(body)
 
     async def run(report):

@@ -19,6 +19,7 @@ import numpy as np
 from openai import OpenAI
 
 from nemesis import config
+from nemesis.llm import ledger
 
 LOG_PATH = Path("runs/llm_log.jsonl")
 CACHE_DIR = Path("runs/llm_cache")
@@ -29,7 +30,7 @@ _client: OpenAI | None = None
 def client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI(base_url=config.META_BASE_URL, api_key=config.api_key(), max_retries=4,
+        _client = OpenAI(base_url=config.META_BASE_URL, api_key=config.api_key(), max_retries=2,
                          timeout=300)
     return _client
 
@@ -147,8 +148,10 @@ def respond(
         if model in config.LOCAL_MODELS:
             text, usage = _local_chat(req)
         else:
+            ledger.guard()
             resp = client().responses.create(**req)
             text, usage = resp.output_text, resp.usage.model_dump() if resp.usage else None
+            ledger.record(model, usage, tag)
         out = {"text": text, "usage": usage, "latency_s": round(time.time() - t0, 2)}
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(out))
@@ -208,6 +211,7 @@ def transcribe(path: str | Path, tag: str = "voice") -> str:
     Open mode has no Meta speech model to self-host, so it uses Whisper (faster-whisper, CPU)."""
     if config.OPEN:
         return _whisper(path, tag)
+    ledger.guard()
     request = {"mode": "PUSH_TO_TALK", "model": config.TRANSCRIBE, "audioEncoding": "WAV"}
     with open(path, "rb") as f:
         r = httpx.post(f"{config.META_BASE_URL}/asr/transcribe",
@@ -218,8 +222,20 @@ def transcribe(path: str | Path, tag: str = "voice") -> str:
     if r.status_code >= 400:
         raise RuntimeError(f"transcribe failed ({r.status_code}): {r.text[:300]}")
     text = r.json()["transcript"]
+    ledger.record_audio(wav_seconds(path), tag)
     _log({"ts": time.time(), "tag": tag, "model": config.TRANSCRIBE, "output": text})
     return text
+
+
+def wav_seconds(path: str | Path) -> float:
+    """Length of a WAV file in seconds (0 if it can't be read)."""
+    import wave
+
+    try:
+        with wave.open(str(path)) as w:
+            return w.getnframes() / float(w.getframerate())
+    except Exception:  # noqa: BLE001  (billing estimate only)
+        return 0.0
 
 
 _whisper_model = None

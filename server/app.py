@@ -23,7 +23,6 @@ import os
 import sys
 import time
 import uuid
-from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
@@ -31,16 +30,16 @@ import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from nemesis import config
-from nemesis.llm import client
+from nemesis.llm import client, ledger
 from nemesis.perturb import canonical as C
 from nemesis.perturb.dsl import Program, compile_program, json_schema
-from server import jobs
+from server import jobs, limits
 from server.versions import Versions
 
 ROOT = Path(os.environ.get("NEMESIS_SERVE_DIR", "runs/serve"))
@@ -51,7 +50,6 @@ POLICY = os.environ.get("NEMESIS_POLICY", "runs/baseline_v2")
 # time, the attack is likely beyond what any controller could survive, and Patch is not offered.
 REFERENCE = os.environ.get("NEMESIS_REFERENCE", "runs/arms_final/dr_s1/round_2")
 UNSURVIVABLE = 0.9
-RATE_PER_MIN = int(os.environ.get("NEMESIS_RATE_PER_MIN", "3"))
 PATCH_STEPS = int(os.environ.get("NEMESIS_PATCH_STEPS", "8000000"))  # worst case ~6 min on a T4; most fixes stop early
 PATCH_MEM = os.environ.get("NEMESIS_PATCH_MEM_FRACTION", "0.6")
 COMMUNITY_BATCH = int(os.environ.get("NEMESIS_COMMUNITY_BATCH", "5"))  # auto-retrain after this many new breaks
@@ -83,11 +81,17 @@ app = FastAPI(title="Nemesis")
 # level 9 would stall the event loop, and every live job stream with it, on each Playground visit.
 app.add_middleware(GZipMiddleware, minimum_size=2048,
                    exclude_content_types=(*DEFAULT_EXCLUDED_CONTENT_TYPES, "application/wasm"))
+
+
+@app.exception_handler(ledger.BudgetExhausted)
+async def _budget(request: Request, e: ledger.BudgetExhausted):
+    return JSONResponse({"detail": str(e)}, status_code=503)
+
+
 versions = Versions(ROOT, POLICY)
 versions_g1 = Versions(ROOT / "g1", G1_POLICY)  # the humanoid's own lineage
 _gpu = asyncio.Lock()  # one simulation at a time; everyone else queues
 _train = asyncio.Lock()  # one patch at a time
-_hits: dict[str, list[float]] = defaultdict(list)
 _sim = {}
 _sim_g1 = {}
 
@@ -148,13 +152,9 @@ def reload_live():
     s.update(live=s["load"](live["dir"]), live_name=live["name"])
 
 
-def _rate_limit(ip: str, per_min: int = RATE_PER_MIN, bucket: str = "attack"):
-    now = time.time()
-    key = f"{bucket}:{ip}"
-    _hits[key] = [t for t in _hits[key] if now - t < 60]
-    if len(_hits[key]) >= per_min:
-        raise HTTPException(429, f"Easy there: {per_min} per minute.")
-    _hits[key].append(now)
+def _rate_limit(ip: str, bucket: str = "attack"):
+    """Per-visitor limits (per minute and per 6 hours) and the spend clamp: server/limits.py."""
+    limits.check(ip, bucket)
 
 
 def translate(text: str, limit: int = 500, robot: str = "go1"):
@@ -361,21 +361,32 @@ async def attack(body: AttackIn, request: Request, live: bool = Query(False, ali
     return await _handle(body.text, request.client.host, body.handle, robot=body.robot)
 
 
+VOICE_MAX = 4 * 2**20  # ~2 min of the page's 16 kHz mono WAV
+
+
+async def _save_voice(audio: UploadFile) -> Path:
+    data = await audio.read(VOICE_MAX + 1)
+    if len(data) > VOICE_MAX:
+        raise HTTPException(400, "Keep it under a minute or so.")
+    path = ROOT / "voice" / f"{uuid.uuid4().hex}.wav"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
 @app.post("/api/attack_voice")
 async def attack_voice(request: Request, audio: UploadFile = File(...), live: bool = Query(False, alias="stream"),
                        robot: str = Query("go1", pattern="^(go1|g1)$")):
-    path = ROOT / "voice" / f"{uuid.uuid4().hex}.wav"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(await audio.read())
     ip = request.client.host
+    _rate_limit(ip)
+    path = await _save_voice(audio)
 
     async def run(report):
         report("Muse Voice Transcribe is listening")
         text = await asyncio.to_thread(client.transcribe, path, "serve/voice")
         report(f"Heard “{text}”")
-        return {"transcript": text, **(await _handle(text, ip, report=report, limited=live, robot=robot))}
+        return {"transcript": text, **(await _handle(text, ip, report=report, limited=True, robot=robot))}
     if live:
-        _rate_limit(ip)
         return stream("attack", run)
     return await run(lambda *a, **k: None)
 
@@ -395,7 +406,7 @@ async def world(request: Request, media: UploadFile = File(...), live: bool = Qu
     suffix = Path(media.filename or "x.jpg").suffix.lower()
     if suffix not in WORLD_TYPES:
         raise HTTPException(400, "Upload a photo (jpg/png/webp) or a short video (mp4/mov/webm).")
-    data = await media.read()
+    data = await media.read(25 * 2**20 + 1)
     if len(data) > 25 * 2**20:
         raise HTTPException(400, "Keep it under 25 MB.")
     MEDIA.mkdir(parents=True, exist_ok=True)
@@ -604,7 +615,7 @@ def explain_learning(clip_url: str, trajs: list[dict], attack_text: str) -> str:
 
 @app.post("/api/patch")
 async def patch(body: PatchIn, request: Request):
-    _rate_limit(request.client.host, per_min=1, bucket="patch")
+    _rate_limit(request.client.host, "patch")
     attack = _find(body.attack_id)
     if attack.get("robot", "go1") != "go1":
         raise HTTPException(400, "Training the humanoid from the page is coming soon; for now it's attack-only.")
@@ -664,11 +675,11 @@ async def agent(body: AgentIn, request: Request):
 
     if config.OPEN:
         raise HTTPException(503, "Agent mode uses Muse Wonder's native tool calling; it is off in open-weight mode.")
-    _rate_limit(request.client.host, per_min=1, bucket="agent")
     if _agent_running.locked():
         running = [j for j in jobs.JOBS.values() if j.kind == "agent" and j.status == "running"]
         if running:
-            return {"job": running[-1].id, "joined": True}  # watch the investigation in progress
+            return {"job": running[-1].id, "joined": True}  # watch the investigation in progress (free)
+    _rate_limit(request.client.host, "agent")
     job = jobs.new("agent")
 
     async def go():
@@ -729,7 +740,7 @@ def _muse_next(duel):
 async def new_duel(body: DuelIn, request: Request):
     from server.duel import Duel
 
-    _rate_limit(request.client.host, per_min=4, bucket="duel")
+    _rate_limit(request.client.host, "duel")
     duel = Duel(body.rounds, body.hard, versions.live()["name"])
     DUELS[duel.id] = duel
     if len(DUELS) > 300:
@@ -788,7 +799,7 @@ async def _round(duel, text: str, transcript: str | None = None, report=lambda *
 async def duel_round(duel_id: str, body: RoundIn, request: Request, live: bool = Query(False, alias="stream")):
     if duel_id not in DUELS:
         raise HTTPException(404, "Duel not found (the server may have restarted). Start a new one!")
-    _rate_limit(request.client.host, per_min=6, bucket="duel-round")
+    _rate_limit(request.client.host, "duel-round")
     if live:
         return stream("round", lambda report: _round(DUELS[duel_id], body.text, report=report))
     return await _round(DUELS[duel_id], body.text)
@@ -799,10 +810,8 @@ async def duel_round_voice(duel_id: str, request: Request, audio: UploadFile = F
                            live: bool = Query(False, alias="stream")):
     if duel_id not in DUELS:
         raise HTTPException(404, "Duel not found (the server may have restarted). Start a new one!")
-    _rate_limit(request.client.host, per_min=6, bucket="duel-round")
-    path = ROOT / "voice" / f"{uuid.uuid4().hex}.wav"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(await audio.read())
+    _rate_limit(request.client.host, "duel-round")
+    path = await _save_voice(audio)
     async def run(report):
         report("Muse Voice Transcribe is listening")
         text = await asyncio.to_thread(client.transcribe, path, "duel/voice")
@@ -860,7 +869,7 @@ async def duel_patch(duel_id: str, request: Request):
     """Train the live robot on every attack in the duel that broke it (brute force excluded)."""
     if duel_id not in DUELS:
         raise HTTPException(404)
-    _rate_limit(request.client.host, per_min=1, bucket="patch")
+    _rate_limit(request.client.host, "patch")
     duel = DUELS[duel_id]
     attacks = [{"id": r[side]["id"], "text": r[side]["text"], "theta": r[side]["theta"]}
                for r in duel.history for side in ("you", "muse")
@@ -992,16 +1001,18 @@ _envelopes: dict = {}
 
 
 @app.get("/api/envelope")
-async def get_envelope(attack_id: str, which: str = Query("", alias="versions")):
+async def get_envelope(request: Request, attack_id: str, which: str = Query("", alias="versions", max_length=40)):
     """Fall-rate grid over the attack's two dominant conditions, for the given versions (default: v1 and live)."""
     from server import report as R
 
     attack = _find(attack_id)
     names = [v for v in which.split(",") if v] or [versions.all()[0]["name"], versions.live()["name"]]
+    order = [v["name"] for v in versions.all()]
     known = {v["name"]: v for v in versions.all()}
-    names = [n for n in dict.fromkeys(names) if n in known]
+    names = sorted({n for n in names if n in known}, key=order.index)[:2]  # one cache entry per pair
     key = (attack_id, tuple(names))
     if key not in _envelopes:
+        _rate_limit(request.client.host, "envelope")
         async with _gpu:
             s = sim()
             params = {n: s["load"](known[n]["dir"]) for n in names}
@@ -1033,7 +1044,7 @@ async def _report(job: jobs.Job, version: str):
 
 @app.post("/api/report")
 async def make_report(body: ReportIn, request: Request):
-    _rate_limit(request.client.host, per_min=1, bucket="report")
+    _rate_limit(request.client.host, "report")
     version = body.version or versions.live()["name"]
     if version not in {v["name"] for v in versions.all()}:
         raise HTTPException(404, "unknown version")
@@ -1048,6 +1059,12 @@ def get_report(version: str):
     if not path.exists():
         raise HTTPException(404, "no report yet")
     return json.loads(path.read_text())
+
+
+@app.get("/api/limits")
+def my_limits(request: Request):
+    """What this visitor has left in each 6-hour quota, and whether the site is clamped."""
+    return limits.status(request.client.host)
 
 
 @app.get("/api/jobs/{job_id}")
