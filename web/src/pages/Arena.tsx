@@ -8,7 +8,7 @@ import Steps from "../components/Steps";
 import { api, post, runJob, upload } from "../lib/api";
 
 type Side = { text: string; score: number; seeds: boolean[]; subtlety: number; cheap: boolean; reference_fall_rate: number; traj: any };
-type Round = { round: number; you: Side; muse: Side; comment: string; sealed: string; commit: string };
+type Round = { round: number; you: Side; muse: Side; comment: string; spark?: string; sealed: string; commit: string };
 type Duel = { id: string; rounds: number; hard: boolean; version: string; history: Round[]; score: { you: number; muse: number }; over: boolean; winner: string | null; last?: Round };
 type Tally = { you: number; muse: number; draw: number; log?: string[] };
 
@@ -115,7 +115,7 @@ export default function Arena() {
       )}
 
       {phase === "reveal" && last && (
-        <Reveal r={last} over={duel.over} onNext={() => (duel.over ? (setPhase("final"), loadTally()) : setPhase("turn"))} />
+        <Reveal duelId={duel.id} r={last} over={duel.over} onNext={() => (duel.over ? (setPhase("final"), loadTally()) : setPhase("turn"))} />
       )}
 
       {phase === "final" && <Final duel={duel} onRematch={start} />}
@@ -198,6 +198,7 @@ function LastRound() {
         {side("you")}{side("muse")}
       </div>
       {r.comment && <figcaption className="mt-3 text-center text-[14px] text-mute">{r.comment}</figcaption>}
+      {r.spark && <p className="mt-1.5 text-center text-[13px] leading-snug text-faint"><span className="text-peri">Muse Spark · </span>{r.spark}</p>}
     </figure>
   );
 }
@@ -222,9 +223,10 @@ function Scoreboard({ duel }: { duel: Duel }) {
   );
 }
 
-function Reveal({ r, over, onNext }: { r: Round; over: boolean; onNext: () => void }) {
+function Reveal({ duelId, r, over, onNext }: { duelId: string; r: Round; over: boolean; onNext: () => void }) {
   const [verified, setVerified] = useState<boolean | null>(null);
   const [typed, setTyped] = useState("");
+  const spark = useSpark(duelId, r);
   useEffect(() => {
     crypto.subtle?.digest("SHA-256", new TextEncoder().encode(r.sealed)).then((b) =>
       setVerified([...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("") === r.commit));
@@ -243,12 +245,30 @@ function Reveal({ r, over, onNext }: { r: Round; over: boolean; onNext: () => vo
         </button>
       </div>
       {r.comment && <p className="mx-auto mt-6 max-w-2xl text-center text-[17px] leading-relaxed text-mute">{typed}</p>}
+      {spark && <p className="rise mx-auto mt-3 max-w-2xl text-center text-[15px] leading-relaxed text-mute"><span className="text-peri">Muse Spark · </span>{spark}</p>}
       <div className="mt-6 grid gap-5 md:grid-cols-2">
         <SideCard who="You" s={r.you} other={r.muse} color="bg-peri" text="text-peri" />
         <SideCard who="Muse" s={r.muse} other={r.you} color="bg-ember" text="text-ember" />
       </div>
     </div>
   );
+}
+
+/** Muse Spark watches the round's clip after the result is in; its line arrives a little later, or not at all. */
+function useSpark(duelId: string, r: Round) {
+  const [spark, setSpark] = useState(r.spark || "");
+  useEffect(() => {
+    setSpark(r.spark || "");
+    if (r.spark !== undefined) return;  // already in (an empty line means Spark had nothing to add)
+    const until = Date.now() + 65_000;
+    const t = setInterval(async () => {
+      const d = await api<Duel>(`/api/duel/${duelId}`).catch(() => null);
+      const x = d?.history.find((h) => h.round === r.round)?.spark;
+      if (typeof x === "string" || Date.now() > until) { clearInterval(t); setSpark(x || ""); }
+    }, 2500);
+    return () => clearInterval(t);
+  }, [duelId, r.round]);
+  return spark;
 }
 
 function SideCard({ who, s, other, color, text }: { who: string; s: Side; other: Side; color: string; text: string }) {

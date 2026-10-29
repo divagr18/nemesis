@@ -333,7 +333,8 @@ def items() -> list[tuple[str, str, str, str]]:
         for r in d.get("history", []):
             out += [("text", r["you"].get("text") or "", d["id"], "duel/you"),
                     ("text", r["muse"].get("text") or "", d["id"], "duel/muse"),
-                    ("text", r.get("comment") or "", d["id"], "duel/comment")]
+                    ("text", r.get("comment") or "", d["id"], "duel/comment"),
+                    ("text", r.get("spark") or "", d["id"], "duel/spark")]
     for vpath in (ROOT / "versions.json", ROOT / "g1" / "versions.json"):
         if vpath.exists():
             for v in json.loads(vpath.read_text())["versions"]:
