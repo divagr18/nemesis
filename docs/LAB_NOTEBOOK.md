@@ -820,6 +820,28 @@ P12 #2, the physics and DSL side (Go1; the G1 gets it through the same terrain h
   - New simulation work is turned away (503) while 12 simulation jobs are in flight. This is checked before any quota or model call is spent.
   - Retrains: one training plus two waiting. A retrain on the same attacks joins the one already queued.
 
+## Oct 30: SAM 3.1 in the photo flow, and the route check
+
+**SAM 3.1** (`sam-3.1`, via the Responses API, $2.50 per 1,000 images, one noun phrase per request).
+- **Request:** a photo plus "step", "puddle", "icy ground" and "ramp": four requests in parallel with Spark's reading.
+  - "ice" found nothing on an icy sidewalk where "icy ground" outlined both icy strips (0.55, 0.62).
+  - Photos are EXIF-rotated and scaled to ≤ 1600 px first.
+- **Output:** special-token text, one box and one mask per match. Boxes are in source pixels.
+- **Masks:** a base85 raster covering the box, with an undocumented compression.
+  - Decoded in the page with Meta's `@meta-sam/parser` 0.1.0. Publisher: Meta's npm account. No dependencies, no network or eval in its code. Pinned exactly, installed with `--ignore-scripts`.
+  - The mask payload is everything after `H,W,` and must be kept whole. Stripping the first `!` as an "encoding marker" breaks the length prefix. A leading `~` means lossless.
+- **Doorway photo (3 stone steps):** 3 steps found, confidence 0.77–0.89, in 1.7–2.6 s.
+  - Spark read "brick hall entrance steps, damp with moss, μ 0.60".
+  - Wonder, told SAM counted exactly 3, built `stairs` count 3 × 15 cm, plus moss as an ice patch and sensor noise.
+- **Page:** the photo appears with SAM's outlines as soon as they arrive (numbered steps, shaded icy ground), next to the progress steps, and stays above Spark's reading in the result.
+- **Ledger:** billed per image (`images_processed`); a photo costs $0.01 in SAM calls.
+
+**Route check on the live site** ("Out the front door, down three small steps, across an icy driveway, then up a gentle ramp to the street"):
+- **Course built:** 3 × 5 cm steps at 0.5 m, a 1.5 m landing and back down, ice μ 0.08 from 3.2 m for 1.2 m, a 5° ramp at 4.6 m.
+- **Outcome:** the original fell 75% (at 2.70 s, coming down the steps). v14 held (0%).
+- **Replay:** draws every segment, and the route line reads "3 steps up → 3 steps down → ice → 5° ramp".
+- **Limitation:** "down three steps" is modelled as up-then-down, because the robot always starts at ground level.
+
 ## Decisions log
 | When | Decision | Why |
 |---|---|---|
