@@ -46,6 +46,19 @@ def vision_model() -> str:
         return SPARK
     return SPARK_OPEN if SPARK_OPEN_URL else GLIMMER
 
+
+NAMES = {WONDER: "Muse Wonder", SPARK: "Muse Spark", GLIMMER: "Muse Glimmer", SPARK_OPEN: "Muse Spark Open"}
+
+
+def name(model: str) -> str:
+    """How progress messages name a model ("Muse Glimmer is turning your words into physics")."""
+    return NAMES.get(model, model)
+
+
+def transcriber_name() -> str:
+    return "Whisper" if OPEN else "Muse Voice Transcribe"
+
+
 BASE_ENV = "Go1JoystickFlatTerrain"
 # Playground's Go1 default is "warp"; pinned to "jax" until benchmarked (PLAN 1.2).
 SIM_IMPL = os.environ.get("NEMESIS_IMPL", "jax")
