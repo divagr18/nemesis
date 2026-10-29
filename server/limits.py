@@ -12,6 +12,7 @@ from collections import defaultdict, deque
 
 from fastapi import HTTPException
 
+from nemesis import config
 from nemesis.llm import ledger
 
 WINDOW = 6 * 3600
@@ -56,7 +57,7 @@ def check(ip: str, bucket: str = "attack"):
     per_min, per_window, clamped, paid = LIMITS[bucket]
     ledger.WHO.set(who(ip))
     mode = ledger.mode()
-    if paid:
+    if paid and not config.OPEN:  # self-hosted models cost nothing: no budget to clamp
         try:
             ledger.guard()
         except ledger.BudgetExhausted as e:

@@ -863,7 +863,7 @@ async def _round(duel, text: str, transcript: str | None = None, report=lambda *
 
     if duel.over:
         raise HTTPException(400, "This duel is over. Start a new one!")
-    report("Muse Wonder is turning your words into physics")
+    report(f"{config.name(config.text_model())} is turning your words into physics")
     try:
         program = await asyncio.to_thread(translate, text)
         compile_program(program)
