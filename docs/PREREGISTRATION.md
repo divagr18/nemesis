@@ -1,6 +1,6 @@
 # Pre-registration: where does Nemesis help? (written Oct 27, before running these experiments)
 
-Context: the main sweep showed that matched-compute DR (w=0.5) ties or beats adversarial fine-tuning, and that Wonder's hypotheses were not more efficient than structured random programs at finding plausible failures against the *baseline* policy (see `LAB_NOTEBOOK.md`). These experiments map the boundary. Every hypothesis below states its metric and what would count **against** it. Results are reported whichever way they come out.
+Context: the main sweep showed that matched-compute DR (w=0.5) ties or beats adversarial fine-tuning, and that Wonder's hypotheses were not more efficient than structured random programs at finding plausible failures against the *baseline* policy. These experiments map the boundary. Every hypothesis below states its metric and what would count **against** it. Results are reported whichever way they come out.
 
 ## Shared definitions
 - **Adversaries:**

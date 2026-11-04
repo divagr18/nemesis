@@ -1,6 +1,0 @@
-[Unit]
-Description=Stop this box after the community vote (InstanceInitiatedShutdownBehavior is stop: never terminates)
-
-[Service]
-Type=oneshot
-ExecStart=/usr/sbin/shutdown -h now "Nemesis: the community vote has closed; scheduled stop"

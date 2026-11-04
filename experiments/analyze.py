@@ -6,7 +6,7 @@
 
 Writes runs/analysis/results.json and runs/analysis/summary.md.
 
-Fairness rules (decided before results, see PLAN.md and docs/LAB_NOTEBOOK.md):
+Fairness rules (decided before results):
   - a "discovered failure mode" counts only if the failure is PLAUSIBLE (cost <= COST_MAX) and
     FEASIBLE (fresh-seed fall rate < 0.95, the same quarantine rule the bank uses), so blind
     search cannot inflate the count with physically unsurvivable scenarios;
@@ -170,7 +170,7 @@ def summary_md(disc: dict, ev: dict | None) -> str:
                  f"{', '.join(f'{(v['attack_steps'] or 0)/1e6:.1f}M' for v in s.values())} |")
     L += ["", f"## Discovery, post-hoc strict plausibility (total deviation <= {TOTAL_DEV_MAX}, "
           f"<= {FAMILIES_MAX} perturbation families, feasible)", "",
-          "Added after partial results exposed a flaw in the pre-registered cost (see LAB_NOTEBOOK).", "",
+          "Added after partial results exposed a flaw in the pre-registered cost.", "",
           "| Arm | modes per round (per seed) | mean after last round | strict failures | median families per failure |",
           "|---|---|---|---|---|"]
     for arm in ARMS:

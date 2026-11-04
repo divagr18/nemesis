@@ -14,7 +14,7 @@ Discovery counts only plausible (cost <= 0.5) and feasible (fall < 0.95) failure
 
 ## Discovery, post-hoc strict plausibility (total deviation <= 1.0, <= 3 perturbation families, feasible)
 
-Added after partial results exposed a flaw in the pre-registered cost (see LAB_NOTEBOOK).
+Added after partial results exposed a flaw in the pre-registered cost.
 
 | Arm | modes per round (per seed) | mean after last round | strict failures | median families per failure |
 |---|---|---|---|---|
